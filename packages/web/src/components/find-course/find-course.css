@@ -1,0 +1,265 @@
+.findcourse-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding-bottom: 48px;
+}
+
+.findcourse-header {
+  background: #f8fafc;
+  padding: 18px 18px 10px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+}
+
+.findcourse-header h1 {
+  margin: 4px 0 6px;
+  font-size: 26px;
+  font-weight: 800;
+}
+
+.findcourse-header .muted {
+  color: #64748b;
+  margin: 0 0 12px;
+}
+
+.breadcrumb {
+  color: #94a3b8;
+  font-size: 13px;
+}
+
+.findcourse-body {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 18px;
+}
+
+.sidebar {
+  position: sticky;
+  top: 84px;
+  align-self: flex-start;
+}
+
+.fc-search {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #f97316;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: #fff;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.03);
+}
+
+.fc-search__icon {
+  color: #f97316;
+}
+
+.fc-search__input {
+  border: none;
+  outline: none;
+  font-size: 15px;
+}
+
+.fc-search__btn {
+  background: #f97316;
+  color: #fff;
+  border: none;
+  padding: 10px 16px;
+  border-radius: 8px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fc-filters {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.fc-filters__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.fc-filter-label {
+  font-weight: 700;
+}
+
+.fc-chip {
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  border-radius: 999px;
+  padding: 8px 14px;
+  cursor: pointer;
+  color: #000000;
+}
+
+.fc-chip--active {
+  background: #ecfeff;
+  color: #0ea5e9;
+  border-color: #a5f3fc;
+}
+.fc-chip--ghost {
+  background: #fff7ed;
+  color: #f97316;
+  border-color: #fed7aa;
+}
+
+.fc-sidebar {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: 80vh;
+  overflow: auto;
+}
+
+.fc-sidebar__title {
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+.fc-sidebar__list {
+  display: grid;
+  gap: 8px;
+  justify-items: start;
+  align-items: start;
+}
+
+.fc-checkbox {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  color: #475569;
+  line-height: 1.2;
+}
+.fc-checkbox input {
+  flex-shrink: 0;
+  margin: 0;
+  accent-color: #f97316;
+}
+.fc-checkbox span {
+  white-space: nowrap;
+}
+
+.results {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.program-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fc-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
+}
+
+.fc-card__header {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+.fc-card__header h3 {
+  margin: 0;
+  font-size: 20px;
+}
+.fc-card__sub {
+  color: #64748b;
+  font-weight: 600;
+}
+.fc-link {
+  color: #f97316;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.fc-card__meta {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  color: #0f172a;
+  font-weight: 600;
+  margin: 8px 0;
+}
+.fc-card__line {
+  color: #475569;
+  margin: 4px 0;
+}
+
+.fc-card__footer {
+  display: flex;
+  gap: 8px;
+}
+.fc-tag {
+  background: #e0f2fe;
+  color: #0ea5e9;
+  padding: 6px 10px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 13px;
+}
+.fc-tag--soft {
+  background: #f8fafc;
+  color: #475569;
+}
+
+.fc-loadmore {
+  text-align: center;
+  padding: 12px 0 4px;
+}
+.fc-loadmore__btn {
+  padding: 12px 18px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 700;
+  color: #000000;
+}
+
+.empty,
+.error {
+  padding: 12px;
+  border-radius: 10px;
+  background: #fff7ed;
+  color: #c2410c;
+  border: 1px solid #fed7aa;
+}
+
+@media (max-width: 1024px) {
+  .findcourse-body {
+    grid-template-columns: 1fr;
+  }
+  .sidebar {
+    position: static;
+  }
+}
+
+@media (max-width: 640px) {
+  .fc-search {
+    grid-template-columns: 1fr auto;
+  }
+  .fc-search__icon {
+    display: none;
+  }
+}

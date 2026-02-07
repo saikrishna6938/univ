@@ -1,0 +1,172 @@
+.layout-shell {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.layout-appbar {
+  background: #0f172a !important;
+  color: #e2e8f0 !important;
+  min-height: 80px;
+  margin: 0;
+  padding: 0;
+}
+
+.layout-header__inner {
+  width: 100%;
+  margin: 0;
+  padding: 0.75rem 2rem;
+  display: flex;
+  align-items: center;
+  gap: 1.2rem;
+}
+
+.nav-toggle {
+  display: none;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: inherit;
+  text-decoration: none;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+.main-nav {
+  display: flex;
+  gap: 0.75rem;
+  margin-left: auto;
+}
+
+.main-nav a {
+  color: #cbd5e1;
+  text-decoration: none;
+  padding: 0.35rem 0.75rem;
+  border-radius: 10px;
+  font-weight: 600;
+}
+
+.main-nav a.active,
+.main-nav a:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #fff;
+}
+
+.header-actions .btn {
+  margin-left: 0.5rem;
+}
+
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
+}
+
+.header-actions form {
+  display: flex;
+  align-items: center;
+  flex: 1;
+}
+
+.country-selector {
+  text-transform: none !important;
+  color: #e2e8f0 !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  padding: 10px 14px !important;
+  border-radius: 10px !important;
+  min-width: 260px;
+  justify-content: flex-start !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+  height: 44px;
+}
+
+.MuiButton-root {
+  background-image: none !important;
+}
+
+.header-actions form .MuiPaper-root {
+  width: 100%;
+  height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.apply-btn {
+  text-transform: none !important;
+}
+
+.layout-content {
+  flex: 1;
+}
+
+.layout-footer {
+  background: #0b1220;
+  color: #cbd5e1;
+  padding: 1.5rem 0;
+  margin-top: 2rem;
+}
+
+.layout-footer__inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 0.75rem 1.25rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.brand--muted .brand-mark {
+  color: #0b1220;
+}
+
+.footer-links {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.footer-links a {
+  color: #e2e8f0;
+  text-decoration: none;
+}
+
+.footer-links a:hover {
+  text-decoration: underline;
+}
+
+.sidenav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 16px 20px;
+  font-weight: 800;
+}
+
+@media (max-width: 1200px) {
+  .main-nav {
+    display: none;
+  }
+  .nav-toggle {
+    display: inline-flex;
+  }
+}
+
+@media (max-width: 800px) {
+  .layout-header__inner {
+    flex-wrap: wrap;
+  }
+  .main-nav {
+    width: 100%;
+    margin-left: 0;
+  }
+  .layout-footer__inner {
+    flex-direction: column;
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "univ-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "packages/api",
+    "packages/web",
+    "packages/mobile"
+  ],
+  "scripts": {
+    "dev:api": "npm run dev --workspace api",
+    "dev:web": "npm run dev --workspace web",
+    "dev:mobile": "npm run start --workspace mobile",
+    "build:web": "npm run build --workspace web"
+  }
+}

@@ -1,0 +1,24 @@
+[
+  {
+    "degree": "B.Sc",
+    "program": "B.Sc Computer Science",
+    "university": "Princeton University",
+    "logo": "https://upload.wikimedia.org/wikipedia/en/7/71/Princeton_Tigers_logo.svg",
+    "events": [
+      { "title": "Early Financial aid Deadline for 2027 Intake", "date": "2026-11-09" },
+      { "title": "Early Decision Notification for 2027 Intake", "date": "2026-12-15" },
+      { "title": "Regular decision Financial aid Deadline for 2027 Intake", "date": "2027-02-01" },
+      { "title": "Early Application Deadline For 2027 Intake", "date": "2026-11-01" },
+      { "title": "Regular decision Application Deadline For 2027 Intake", "date": "2027-01-01" }
+    ]
+  },
+  {
+    "degree": "B.Sc",
+    "program": "B.Sc Molecular Genetics and Microbiology",
+    "university": "University of Toronto",
+    "logo": "https://upload.wikimedia.org/wikipedia/en/thumb/c/c9/Toronto_Blue_Jays_logo.svg/1200px-Toronto_Blue_Jays_logo.svg.png",
+    "events": [
+      { "title": "Deadline To Submit Supporting Documents for 2026 Intake", "date": "2026-02-07" }
+    ]
+  }
+]
