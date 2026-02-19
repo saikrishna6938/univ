@@ -24,9 +24,9 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { AdminListUser, Country, LeadConversation, LeadConversationStatus } from '../../lib/api';
-import { createAdminUser, fetchAdminUsers, fetchCountries, fetchLeadConversations, upsertLeadConversation } from '../../lib/api';
+import { bulkCreateAdminUsers, createAdminUser, deleteAdminUser, fetchAdminUsers, fetchCountries, fetchLeadConversations, updateAdminUser, upsertLeadConversation } from '../../lib/api';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
 
@@ -73,19 +73,60 @@ function toInputDateTime(value?: string | null): string {
   return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
 }
 
+function parseCsvLine(line: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i += 1) {
+    const char = line[i];
+    if (char === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"';
+        i += 1;
+      } else {
+        inQuotes = !inQuotes;
+      }
+      continue;
+    }
+    if (char === ',' && !inQuotes) {
+      out.push(current.trim());
+      current = '';
+      continue;
+    }
+    current += char;
+  }
+
+  out.push(current.trim());
+  return out;
+}
+
 export default function AdminUsersPage() {
   const { adminUser } = useAdminAuth();
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [users, setUsers] = useState<AdminListUser[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
   const [conversationsByUserId, setConversationsByUserId] = useState<Record<number, LeadConversation>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
+  const [uploadingUsers, setUploadingUsers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ field: 'createdAt', direction: 'desc' });
 
   const [editingUser, setEditingUser] = useState<AdminListUser | null>(null);
+  const [editingAccountUser, setEditingAccountUser] = useState<AdminListUser | null>(null);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
+  const [updatingUser, setUpdatingUser] = useState(false);
+  const [editUserForm, setEditUserForm] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    city: '',
+    roles: [] as Array<'admin' | 'manager' | 'employee'>,
+    countryIds: [] as number[],
+    password: ''
+  });
   const [newUserForm, setNewUserForm] = useState({
     name: '',
     email: '',
@@ -191,13 +232,16 @@ export default function AdminUsersPage() {
     const sessionRole = String(adminUser?.role || '').toLowerCase();
 
     if (sessionRole === 'employee') {
-      return sortedUsers.filter((user) => String(user.role || '').toLowerCase() === 'student');
+      return sortedUsers.filter((user) => {
+        const role = String(user.role || '').toLowerCase();
+        return role === 'student' || role === 'uploaded';
+      });
     }
 
     if (sessionRole === 'manager') {
       return sortedUsers.filter((user) => {
         const role = String(user.role || '').toLowerCase();
-        return role === 'student' || role === 'employee';
+        return role === 'student' || role === 'uploaded' || role === 'employee';
       });
     }
 
@@ -226,6 +270,21 @@ export default function AdminUsersPage() {
       reminderAt: toInputDateTime(conversation?.reminderAt),
       reminderDone: conversation?.reminderDone || false,
       lastContactedAt: toInputDateTime(conversation?.lastContactedAt)
+    });
+  }
+
+  function openUserEditor(user: AdminListUser) {
+    setEditingAccountUser(user);
+    setEditUserForm({
+      name: user.name || '',
+      email: user.email || '',
+      phone: user.phone || '',
+      city: user.city || '',
+      roles: (user.roles || []).filter((role): role is 'admin' | 'manager' | 'employee' =>
+        ['admin', 'manager', 'employee'].includes(role)
+      ),
+      countryIds: (user.countryIds || []).map((id) => Number(id)).filter((id) => !Number.isNaN(id)),
+      password: ''
     });
   }
 
@@ -284,6 +343,108 @@ export default function AdminUsersPage() {
     }
   }
 
+  async function saveUserEdit() {
+    if (!editingAccountUser) return;
+    if (!editUserForm.name.trim() || !editUserForm.email.trim()) {
+      setError('Name and email are required');
+      return;
+    }
+
+    setUpdatingUser(true);
+    try {
+      const updated = await updateAdminUser(editingAccountUser.id, {
+        name: editUserForm.name.trim(),
+        email: editUserForm.email.trim(),
+        phone: editUserForm.phone.trim() || undefined,
+        city: editUserForm.city.trim() || undefined,
+        roles: editUserForm.roles,
+        countryIds: editUserForm.countryIds,
+        password: editUserForm.password.trim() || undefined
+      });
+
+      setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)));
+      setEditingAccountUser(null);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to update user');
+    } finally {
+      setUpdatingUser(false);
+    }
+  }
+
+  async function removeUser(user: AdminListUser) {
+    const ok = window.confirm(`Delete user "${user.name}"?`);
+    if (!ok) return;
+
+    try {
+      await deleteAdminUser(user.id);
+      setUsers((prev) => prev.filter((item) => item.id !== user.id));
+      setConversationsByUserId((prev) => {
+        const next = { ...prev };
+        delete next[user.id];
+        return next;
+      });
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete user');
+    }
+  }
+
+  async function uploadUsersCsv(file: File) {
+    const text = await file.text();
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length < 2) {
+      throw new Error('CSV must include header and at least one row');
+    }
+
+    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
+    const rows = lines.slice(1).map((line, index) => {
+      const cells = parseCsvLine(line);
+      const rowObj: Record<string, string> = {};
+      headers.forEach((header, idx) => {
+        rowObj[header] = cells[idx] ?? '';
+      });
+      return { row: index + 2, data: rowObj };
+    });
+
+    const payload = rows.map(({ data }) => {
+      return {
+        name: String(data.name || '').trim(),
+        email: String(data.email || '').trim(),
+        phone: String(data.phone || '').trim() || undefined
+      };
+    });
+
+    return bulkCreateAdminUsers(payload);
+  }
+
+  async function handleCsvInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+
+    setUploadingUsers(true);
+    try {
+      const result = await uploadUsersCsv(file);
+      if (result.created.length) {
+        setUsers((prev) => [...result.created, ...prev]);
+      }
+      setError(
+        result.failedCount
+          ? `Imported ${result.createdCount} users, ${result.failedCount} failed. Check CSV values (email uniqueness, password for panel roles, country ids).`
+          : `Successfully imported ${result.createdCount} users.`
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to import CSV');
+    } finally {
+      setUploadingUsers(false);
+    }
+  }
+
   return (
     <Box className="admin-dashboard">
       {error ? (
@@ -300,6 +461,25 @@ export default function AdminUsersPage() {
           </Typography>
           <Stack direction="row" spacing={1}>
             <Chip label={loading ? 'Loading...' : `${visibleUsers.length} users`} color="info" variant="outlined" />
+            {adminUser?.role === 'admin' || adminUser?.role === 'manager' ? (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".csv,text/csv"
+                  style={{ display: 'none' }}
+                  onChange={handleCsvInputChange}
+                />
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={uploadingUsers}
+                >
+                  {uploadingUsers ? 'Uploading...' : 'Upload CSV'}
+                </Button>
+              </>
+            ) : null}
             <Button size="small" variant="contained" onClick={() => setIsAddUserOpen(true)}>
               Add User
             </Button>
@@ -307,6 +487,11 @@ export default function AdminUsersPage() {
         </Box>
 
         <Box className="admin-panel__body">
+          {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1, pb: 1 }}>
+              CSV columns: `name,email,phone`. Upload defaults are auto-applied: city=`Hyderabad`, role=`uploaded`, country_ids=`null`, password=`Student@123`.
+            </Typography>
+          ) : null}
           <TableContainer sx={{ maxHeight: 700 }}>
             <Table stickyHeader size="small">
               <TableHead>
@@ -359,9 +544,21 @@ export default function AdminUsersPage() {
                           <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
                           <TableCell>{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</TableCell>
                           <TableCell align="right">
-                            <Button size="small" variant="outlined" onClick={() => openConversationEditor(user)}>
-                              Manage
-                            </Button>
+                            <Stack direction="row" spacing={1} justifyContent="flex-end">
+                              <Button size="small" variant="outlined" onClick={() => openConversationEditor(user)}>
+                                Manage
+                              </Button>
+                              {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
+                                <>
+                                  <Button size="small" variant="outlined" onClick={() => openUserEditor(user)}>
+                                    Edit
+                                  </Button>
+                                  <Button size="small" color="error" variant="outlined" onClick={() => removeUser(user)}>
+                                    Delete
+                                  </Button>
+                                </>
+                              ) : null}
+                            </Stack>
                           </TableCell>
                         </TableRow>
                       );
@@ -564,6 +761,111 @@ export default function AdminUsersPage() {
           </Button>
           <Button onClick={addUser} variant="contained" disabled={creatingUser}>
             {creatingUser ? 'Adding...' : 'Add User'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog fullWidth maxWidth="sm" open={Boolean(editingAccountUser)} onClose={() => setEditingAccountUser(null)}>
+        <DialogTitle>Edit User</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <TextField
+              label="Name"
+              value={editUserForm.name}
+              onChange={(event) => setEditUserForm((prev) => ({ ...prev, name: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Email"
+              type="email"
+              value={editUserForm.email}
+              onChange={(event) => setEditUserForm((prev) => ({ ...prev, email: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="Phone"
+              value={editUserForm.phone}
+              onChange={(event) => setEditUserForm((prev) => ({ ...prev, phone: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label="City"
+              value={editUserForm.city}
+              onChange={(event) => setEditUserForm((prev) => ({ ...prev, city: event.target.value }))}
+              fullWidth
+            />
+            <FormControl fullWidth>
+              <InputLabel id="edit-user-role-label">Roles</InputLabel>
+              <Select
+                labelId="edit-user-role-label"
+                label="Roles"
+                multiple
+                value={editUserForm.roles}
+                renderValue={(selected) => (selected as string[]).join(', ')}
+                onChange={(event) => {
+                  const value = event.target.value;
+                  const roles = Array.isArray(value) ? value : String(value).split(',');
+                  const normalized = roles
+                    .map((role) => String(role).trim().toLowerCase())
+                    .filter((role): role is 'admin' | 'manager' | 'employee' =>
+                      ['admin', 'manager', 'employee'].includes(role)
+                    );
+                  setEditUserForm((prev) => ({
+                    ...prev,
+                    roles: [...new Set(normalized)]
+                  }));
+                }}
+              >
+                <MenuItem value="employee">Employee</MenuItem>
+                <MenuItem value="manager">Manager</MenuItem>
+                <MenuItem value="admin">Admin</MenuItem>
+              </Select>
+            </FormControl>
+            <FormControl fullWidth>
+              <InputLabel id="edit-user-country-label">Countries</InputLabel>
+              <Select
+                labelId="edit-user-country-label"
+                label="Countries"
+                multiple
+                value={editUserForm.countryIds}
+                renderValue={(selected) =>
+                  (selected as number[])
+                    .map((id) => countries.find((country) => Number(country.id ?? country._id ?? 0) === id)?.name || id)
+                    .join(', ')
+                }
+                onChange={(event) =>
+                  setEditUserForm((prev) => ({
+                    ...prev,
+                    countryIds: (event.target.value as number[]).map((id) => Number(id))
+                  }))
+                }
+              >
+                {countries.map((country) => {
+                  const id = Number(country.id ?? country._id ?? 0);
+                  return (
+                    <MenuItem key={id} value={id}>
+                      {country.name}
+                    </MenuItem>
+                  );
+                })}
+              </Select>
+            </FormControl>
+            <TextField
+              label="Password (optional reset)"
+              type="password"
+              helperText="Leave blank to keep current password"
+              value={editUserForm.password}
+              onChange={(event) => setEditUserForm((prev) => ({ ...prev, password: event.target.value }))}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setEditingAccountUser(null)} color="inherit">
+            Cancel
+          </Button>
+          <Button onClick={saveUserEdit} variant="contained" disabled={updatingUser}>
+            {updatingUser ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>

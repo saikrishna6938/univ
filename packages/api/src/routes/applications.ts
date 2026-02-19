@@ -126,7 +126,14 @@ router.get('/task-analytics', async (_req, res) => {
   const [employeeRows] = await pool.query<RowDataPacket[]>(
     `SELECT u.id AS employeeUserId,
             u.name AS employeeName,
-            COUNT(*) AS taskCount
+            COUNT(*) AS taskCount,
+            SUM(CASE WHEN TIMESTAMPDIFF(HOUR, eat.updated_at, CURRENT_TIMESTAMP) < 24 THEN 1 ELSE 0 END) AS onTimeCount,
+            SUM(CASE
+                  WHEN TIMESTAMPDIFF(HOUR, eat.updated_at, CURRENT_TIMESTAMP) >= 24
+                   AND TIMESTAMPDIFF(DAY, eat.updated_at, CURRENT_TIMESTAMP) < 6 THEN 1
+                  ELSE 0
+                END) AS agingCount,
+            SUM(CASE WHEN TIMESTAMPDIFF(DAY, eat.updated_at, CURRENT_TIMESTAMP) >= 6 THEN 1 ELSE 0 END) AS criticalCount
      FROM employee_application_tasks eat
      INNER JOIN users u ON u.id = eat.employee_user_id
      LEFT JOIN user_admin_roles ur
@@ -183,7 +190,10 @@ router.get('/task-analytics', async (_req, res) => {
     employeeTasks: employeeRows.map((row) => ({
       employeeUserId: Number(row.employeeUserId),
       employeeName: String(row.employeeName || 'Unknown'),
-      taskCount: Number(row.taskCount) || 0
+      taskCount: Number(row.taskCount) || 0,
+      onTimeCount: Number(row.onTimeCount) || 0,
+      agingCount: Number(row.agingCount) || 0,
+      criticalCount: Number(row.criticalCount) || 0
     })),
     countryTasks: countryRows.map((row) => ({
       countryName: String(row.countryName || 'Unknown'),

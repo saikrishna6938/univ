@@ -63,6 +63,19 @@ router.post('/request-otp', async (req, res) => {
 
   const existing = await findUser(emailNorm || undefined, phoneNorm || undefined);
 
+  if (phoneNorm) {
+    const [phoneRows] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE phone = ? LIMIT 1', [phoneNorm]);
+    if (phoneRows.length && (!existing || Number(phoneRows[0].id) !== Number(existing.id))) {
+      return res.status(409).json({ error: 'User with this phone already exists' });
+    }
+  }
+  if (emailNorm) {
+    const [emailRows] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailNorm]);
+    if (emailRows.length && (!existing || Number(emailRows[0].id) !== Number(existing.id))) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+  }
+
   if (existing) {
     await pool.query<ResultSetHeader>(
       `UPDATE users
@@ -332,6 +345,12 @@ router.post('/users', async (req, res) => {
   if (existing.length) {
     return res.status(409).json({ error: 'User with this email already exists' });
   }
+  if (phoneValue) {
+    const [phoneExisting] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE phone = ? LIMIT 1', [phoneValue]);
+    if (phoneExisting.length) {
+      return res.status(409).json({ error: 'User with this phone already exists' });
+    }
+  }
 
   const [result] = await pool.query<ResultSetHeader>(
     `INSERT INTO users (name, email, phone, city, role, password_hash)
@@ -384,6 +403,242 @@ router.post('/users', async (req, res) => {
     roles: parseCsv(row.rolesCsv),
     countryIds: parseCsv(row.countryIdsCsv).map((item) => Number(item)).filter((item) => !Number.isNaN(item))
   });
+});
+
+router.post('/users/bulk', async (req, res) => {
+  const inputUsers = Array.isArray(req.body?.users) ? req.body.users : [];
+  if (!inputUsers.length) {
+    return res.status(400).json({ error: 'users array is required' });
+  }
+  if (inputUsers.length > 500) {
+    return res.status(400).json({ error: 'Maximum 500 users per upload' });
+  }
+
+  const created: RowDataPacket[] = [];
+  const failed: Array<{ row: number; email?: string; reason: string }> = [];
+
+  for (let index = 0; index < inputUsers.length; index += 1) {
+    const source = inputUsers[index] || {};
+    const rowNumber = index + 2; // assumes row 1 is header in CSV
+
+    const nameValue = String(source.name || '').trim();
+    const emailValue = String(source.email || '').trim().toLowerCase();
+    const phoneValue = source.phone ? String(source.phone).trim() : null;
+    const cityValue = 'Hyderabad';
+
+    if (!nameValue || !emailValue) {
+      failed.push({ row: rowNumber, email: emailValue || undefined, reason: 'name and email are required' });
+      continue;
+    }
+
+    const roleValue = 'uploaded';
+    const passwordValue = 'Student@123';
+
+    const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailValue]);
+    if (existing.length) {
+      failed.push({ row: rowNumber, email: emailValue, reason: 'user already exists' });
+      continue;
+    }
+    if (phoneValue) {
+      const [phoneExisting] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE phone = ? LIMIT 1', [phoneValue]);
+      if (phoneExisting.length) {
+        failed.push({ row: rowNumber, email: emailValue, reason: 'phone already exists' });
+        continue;
+      }
+    }
+
+    const passwordHash = passwordValue ? await bcrypt.hash(passwordValue, 10) : null;
+
+    try {
+      const [result] = await pool.query<ResultSetHeader>(
+        `INSERT INTO users (name, email, phone, city, role, password_hash)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [nameValue, emailValue, phoneValue, cityValue, roleValue, passwordHash]
+      );
+
+      const id = (result as ResultSetHeader).insertId;
+
+      const [rows] = await pool.query<RowDataPacket[]>(
+        `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
+                GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv,
+                GROUP_CONCAT(DISTINCT uca.country_id ORDER BY uca.country_id SEPARATOR ',') AS countryIdsCsv
+         FROM users u
+         LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
+         LEFT JOIN user_country_access uca ON uca.user_id = u.id
+         WHERE u.id = ?
+         GROUP BY u.id
+         LIMIT 1`,
+        [id]
+      );
+
+      if (rows.length) {
+        created.push({
+          ...rows[0],
+          roles: parseCsv(rows[0].rolesCsv),
+          countryIds: parseCsv(rows[0].countryIdsCsv).map((item) => Number(item)).filter((item) => !Number.isNaN(item))
+        });
+      }
+    } catch (err) {
+      failed.push({
+        row: rowNumber,
+        email: emailValue,
+        reason: err instanceof Error ? err.message : 'failed to create user'
+      });
+    }
+  }
+
+  res.status(201).json({
+    createdCount: created.length,
+    failedCount: failed.length,
+    created,
+    failed
+  });
+});
+
+router.patch('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || Number.isNaN(id)) {
+    return res.status(400).json({ error: 'Valid user id is required' });
+  }
+
+  const { name, email, phone, city, role, roles, countryIds, password } = req.body || {};
+  const updates: string[] = [];
+  const values: Array<string | null> = [];
+
+  if (name !== undefined) {
+    const nameValue = String(name || '').trim();
+    if (!nameValue) return res.status(400).json({ error: 'name cannot be empty' });
+    updates.push('name = ?');
+    values.push(nameValue);
+  }
+
+  if (email !== undefined) {
+    const emailValue = String(email || '').trim().toLowerCase();
+    if (!emailValue) return res.status(400).json({ error: 'email cannot be empty' });
+
+    const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1', [emailValue, id]);
+    if (existing.length) {
+      return res.status(409).json({ error: 'Another user with this email already exists' });
+    }
+
+    updates.push('email = ?');
+    values.push(emailValue);
+  }
+
+  if (phone !== undefined) {
+    const phoneValue = phone ? String(phone).trim() : null;
+    if (phoneValue) {
+      const [phoneExisting] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE phone = ? AND id <> ? LIMIT 1', [
+        phoneValue,
+        id
+      ]);
+      if (phoneExisting.length) {
+        return res.status(409).json({ error: 'Another user with this phone already exists' });
+      }
+    }
+    updates.push('phone = ?');
+    values.push(phoneValue);
+  }
+
+  if (city !== undefined) {
+    updates.push('city = ?');
+    values.push(city ? String(city).trim() : null);
+  }
+
+  const selectedRoles = roles !== undefined ? toPanelRoles(roles) : [];
+  const fallbackRole = role !== undefined ? toPanelRoles(role) : [];
+  const mergedRoles = roles !== undefined || role !== undefined ? [...new Set([...selectedRoles, ...fallbackRole])] : null;
+
+  if (mergedRoles) {
+    const roleValue = getPrimaryPanelRole(mergedRoles) || 'student';
+    updates.push('role = ?');
+    values.push(roleValue);
+  }
+
+  if (password !== undefined) {
+    const passwordValue = String(password || '');
+    if (passwordValue) {
+      const requiresPassword = mergedRoles ? mergedRoles.length > 0 : false;
+      if (requiresPassword && passwordValue.length < 6) {
+        return res.status(400).json({ error: 'Password with at least 6 characters is required for admin/manager/employee roles' });
+      }
+      const passwordHash = await bcrypt.hash(passwordValue, 10);
+      updates.push('password_hash = ?');
+      values.push(passwordHash);
+    }
+  }
+
+  if (updates.length) {
+    updates.push('updated_at = CURRENT_TIMESTAMP');
+    await pool.query<ResultSetHeader>(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`, [...values, String(id)]);
+  }
+
+  if (mergedRoles) {
+    await pool.query<ResultSetHeader>('DELETE FROM user_admin_roles WHERE user_id = ?', [id]);
+    if (mergedRoles.length) {
+      await Promise.all(
+        mergedRoles.map((panelRole) =>
+          pool.query<ResultSetHeader>('INSERT INTO user_admin_roles (user_id, role) VALUES (?, ?)', [id, panelRole])
+        )
+      );
+    }
+  }
+
+  if (countryIds !== undefined) {
+    const normalizedCountryIds = Array.isArray(countryIds)
+      ? countryIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+      : [];
+
+    await pool.query<ResultSetHeader>('DELETE FROM user_country_access WHERE user_id = ?', [id]);
+    if (normalizedCountryIds.length) {
+      await Promise.all(
+        normalizedCountryIds.map((countryId) =>
+          pool.query<ResultSetHeader>('INSERT IGNORE INTO user_country_access (user_id, country_id) VALUES (?, ?)', [
+            id,
+            countryId
+          ])
+        )
+      );
+    }
+  }
+
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
+            GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv,
+            GROUP_CONCAT(DISTINCT uca.country_id ORDER BY uca.country_id SEPARATOR ',') AS countryIdsCsv
+     FROM users u
+     LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
+     LEFT JOIN user_country_access uca ON uca.user_id = u.id
+     WHERE u.id = ?
+     GROUP BY u.id
+     LIMIT 1`,
+    [id]
+  );
+
+  if (!rows.length) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const row = rows[0];
+  res.json({
+    ...row,
+    roles: parseCsv(row.rolesCsv),
+    countryIds: parseCsv(row.countryIdsCsv).map((item) => Number(item)).filter((item) => !Number.isNaN(item))
+  });
+});
+
+router.delete('/users/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || Number.isNaN(id)) {
+    return res.status(400).json({ error: 'Valid user id is required' });
+  }
+
+  const [result] = await pool.query<ResultSetHeader>('DELETE FROM users WHERE id = ?', [id]);
+  if ((result as ResultSetHeader).affectedRows === 0) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  res.json({ success: true });
 });
 
 export default router;

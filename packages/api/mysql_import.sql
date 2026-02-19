@@ -92,9 +92,10 @@ CREATE TABLE IF NOT EXISTS users (
   otp_expires_at DATETIME,
   email_verified_at DATETIME,
   last_login_at DATETIME,
-  role ENUM('student', 'admin', 'manager', 'employee') DEFAULT 'student',
+  role ENUM('student', 'uploaded', 'admin', 'manager', 'employee') DEFAULT 'student',
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uniq_users_phone (phone)
 );
 
 CREATE TABLE IF NOT EXISTS user_admin_roles (

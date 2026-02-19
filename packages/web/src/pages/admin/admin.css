@@ -379,33 +379,59 @@
   word-break: break-word;
 }
 
-.admin-task-progress-row {
+.admin-employee-aging-card {
   display: grid;
-  gap: 6px;
-  padding: 8px 10px;
-  border-radius: 10px;
+  gap: 8px;
+  padding: 10px;
+  border-radius: 12px;
   background: #f8fafc;
   border: 1px solid #e2e8f0;
 }
 
-.admin-task-progress-row__meta {
+.admin-employee-aging-card__head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
 
-.admin-task-progress-row__track {
-  width: 100%;
-  height: 9px;
-  border-radius: 999px;
-  background: #e2e8f0;
+.admin-employee-aging-card__metrics {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
 }
 
-.admin-task-progress-row__fill {
-  height: 100%;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #38bdf8 0%, #2563eb 100%);
+.admin-employee-aging-card__metric {
+  display: grid;
+  justify-items: center;
+  gap: 2px;
+  border-radius: 10px;
+  border: 1px solid #e2e8f0;
+  background: #ffffff;
+  padding: 7px 6px;
+}
+
+.admin-employee-aging-card__metric strong {
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.admin-employee-aging-card__metric--on-time {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.admin-employee-aging-card__metric--aging {
+  border-color: #fed7aa;
+  background: #fff7ed;
+  color: #b45309;
+}
+
+.admin-employee-aging-card__metric--critical {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
 }
 
 .admin-lead-row {

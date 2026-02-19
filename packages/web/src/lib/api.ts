@@ -39,7 +39,7 @@ export type LeadUser = {
   email?: string;
   phone?: string;
   city?: string;
-  role: 'student' | 'admin' | 'manager' | 'employee';
+  role: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
   createdAt: string;
 };
 
@@ -122,6 +122,9 @@ export type TaskAnalytics = {
     employeeUserId: number;
     employeeName: string;
     taskCount: number;
+    onTimeCount: number;
+    agingCount: number;
+    criticalCount: number;
   }>;
   countryTasks: Array<{
     countryName: string;
@@ -426,7 +429,7 @@ export async function createAdminUser(input: {
   email: string;
   phone?: string;
   city?: string;
-  role?: 'student' | 'admin' | 'manager' | 'employee';
+  role?: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
   roles?: Array<'admin' | 'manager' | 'employee'>;
   countryIds?: number[];
   password?: string;
@@ -437,6 +440,59 @@ export async function createAdminUser(input: {
     body: JSON.stringify(input)
   });
   return handleResponse<AdminListUser>(res);
+}
+
+export async function bulkCreateAdminUsers(
+  users: Array<{
+    name: string;
+    email: string;
+    phone?: string;
+    city?: string;
+    role?: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
+    roles?: Array<'admin' | 'manager' | 'employee'>;
+    countryIds?: number[] | string;
+    password?: string;
+  }>
+): Promise<{
+  createdCount: number;
+  failedCount: number;
+  created: AdminListUser[];
+  failed: Array<{ row: number; email?: string; reason: string }>;
+}> {
+  const res = await fetch(`${API_URL}/api/auth/users/bulk`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ users })
+  });
+  return handleResponse(res);
+}
+
+export async function updateAdminUser(
+  userId: number,
+  input: Partial<{
+    name: string;
+    email: string;
+    phone?: string;
+    city?: string;
+    role?: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
+    roles?: Array<'admin' | 'manager' | 'employee'>;
+    countryIds?: number[];
+    password?: string;
+  }>
+): Promise<AdminListUser> {
+  const res = await fetch(`${API_URL}/api/auth/users/${userId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminListUser>(res);
+}
+
+export async function deleteAdminUser(userId: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/auth/users/${userId}`, {
+    method: 'DELETE'
+  });
+  return handleResponse<{ success: boolean }>(res);
 }
 
 export async function fetchLeadConversations(): Promise<LeadConversation[]> {

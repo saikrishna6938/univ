@@ -32,7 +32,16 @@ export default function AdminDashboardPage() {
   const [todaysReminders, setTodaysReminders] = useState<TodayReminder[]>([]);
   const [employeeTasks, setEmployeeTasks] = useState<EmployeeTask[]>([]);
   const [usersByLocation, setUsersByLocation] = useState<Array<{ location: string; count: number }>>([]);
-  const [employeeTaskCounts, setEmployeeTaskCounts] = useState<Array<{ employeeUserId: number; employeeName: string; taskCount: number }>>([]);
+  const [employeeTaskCounts, setEmployeeTaskCounts] = useState<
+    Array<{
+      employeeUserId: number;
+      employeeName: string;
+      taskCount: number;
+      onTimeCount: number;
+      agingCount: number;
+      criticalCount: number;
+    }>
+  >([]);
   const [countryTaskCounts, setCountryTaskCounts] = useState<Array<{ countryName: string; taskCount: number }>>([]);
   const [globalTaskAging, setGlobalTaskAging] = useState({ onTime: 0, aging: 0, critical: 0, total: 0 });
   const [loading, setLoading] = useState(true);
@@ -104,7 +113,6 @@ export default function AdminDashboardPage() {
 
   const dailyChartMax = useMemo(() => Math.max(1, ...dailyRegistrations.map((item) => item.count)), [dailyRegistrations]);
   const locationChartMax = useMemo(() => Math.max(1, ...usersByLocation.map((item) => item.count)), [usersByLocation]);
-  const employeeTaskMax = useMemo(() => Math.max(1, ...employeeTaskCounts.map((item) => item.taskCount)), [employeeTaskCounts]);
   const countryTaskMax = useMemo(() => Math.max(1, ...countryTaskCounts.map((item) => item.taskCount)), [countryTaskCounts]);
 
   const linePoints = useMemo(() => {
@@ -125,7 +133,11 @@ export default function AdminDashboardPage() {
     [employeeTasks]
   );
   const recentStudentUsers = useMemo(
-    () => recentUsers.filter((user) => String(user.role || '').toLowerCase() === 'student'),
+    () =>
+      recentUsers.filter((user) => {
+        const role = String(user.role || '').toLowerCase();
+        return role === 'student' || role === 'uploaded';
+      }),
     [recentUsers]
   );
 
@@ -431,23 +443,33 @@ export default function AdminDashboardPage() {
               ) : (
                 <Stack spacing={1}>
                   {employeeTaskCounts.slice(0, 10).map((item) => (
-                    <Box className="admin-task-progress-row" key={`employee-task-${item.employeeUserId}`}>
-                      <Box className="admin-task-progress-row__meta">
+                    <Box className="admin-employee-aging-card" key={`employee-task-${item.employeeUserId}`}>
+                      <Box className="admin-employee-aging-card__head">
                         <Typography variant="body2" fontWeight={700}>
                           {item.employeeName}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          {item.taskCount}
-                        </Typography>
+                        <Chip size="small" label={`${item.taskCount} tasks`} color="info" variant="outlined" />
                       </Box>
-                      <Tooltip title={`${item.employeeName}: ${item.taskCount} tasks`} arrow placement="top">
-                        <Box className="admin-task-progress-row__track">
-                          <Box
-                            className="admin-task-progress-row__fill"
-                            sx={{ width: `${Math.max(6, (item.taskCount / employeeTaskMax) * 100)}%` }}
-                          />
-                        </Box>
-                      </Tooltip>
+                      <Box className="admin-employee-aging-card__metrics">
+                        <Tooltip title="Updated within last 24 hours" arrow placement="top">
+                          <Box className="admin-employee-aging-card__metric admin-employee-aging-card__metric--on-time">
+                            <Typography variant="caption">OnTime</Typography>
+                            <strong>{item.onTimeCount}</strong>
+                          </Box>
+                        </Tooltip>
+                        <Tooltip title="Pending for 1 to 5 days" arrow placement="top">
+                          <Box className="admin-employee-aging-card__metric admin-employee-aging-card__metric--aging">
+                            <Typography variant="caption">Aging</Typography>
+                            <strong>{item.agingCount}</strong>
+                          </Box>
+                        </Tooltip>
+                        <Tooltip title="Pending for 6+ days" arrow placement="top">
+                          <Box className="admin-employee-aging-card__metric admin-employee-aging-card__metric--critical">
+                            <Typography variant="caption">Critical</Typography>
+                            <strong>{item.criticalCount}</strong>
+                          </Box>
+                        </Tooltip>
+                      </Box>
                     </Box>
                   ))}
                 </Stack>
@@ -610,7 +632,7 @@ export default function AdminDashboardPage() {
               ))}
               {recentStudentUsers.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No recent student leads found.
+                  No recent student/uploaded leads found.
                 </Typography>
               ) : null}
             </Stack>

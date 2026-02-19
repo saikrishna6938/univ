@@ -120,6 +120,7 @@ export default function FiltersSidebar({
 
   return (
     <div className="fc-sidebar">
+      <div className="fc-sidebar__heading">Filter By</div>
       <div className="fc-sidebar__section">
         <div className="fc-sidebar__title">Concentration</div>
         <div className="fc-sidebar__list">
