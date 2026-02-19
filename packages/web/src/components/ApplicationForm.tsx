@@ -35,7 +35,7 @@ export default function ApplicationForm({ programs }: Props) {
         <select value={appInput.program} onChange={(e) => setAppInput((a) => ({ ...a, program: e.target.value }))} required>
           <option value="">Select a program</option>
           {programs.map((p) => (
-            <option key={p._id} value={p._id}>
+            <option key={String(p.id ?? p._id)} value={String(p.id ?? p._id)}>
               {p.programName}
             </option>
           ))}

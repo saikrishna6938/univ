@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
+import bcrypt from 'bcryptjs';
 import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../config/database';
 
@@ -7,6 +8,38 @@ const router = Router();
 
 function generateOtp() {
   return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+type PanelRole = 'admin' | 'manager' | 'employee';
+const PANEL_ROLE_PRIORITY: PanelRole[] = ['admin', 'manager', 'employee'];
+
+function parseCsv(value: unknown): string[] {
+  if (!value) return [];
+  return String(value)
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function toPanelRoles(input: unknown): PanelRole[] {
+  const valid = new Set<PanelRole>(['admin', 'manager', 'employee']);
+  const values = Array.isArray(input) ? input : [input];
+  const roles = values
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .flatMap((value) =>
+      String(value || '')
+        .split(',')
+        .map((item) => item.trim().toLowerCase())
+    )
+    .filter((value): value is PanelRole => valid.has(value as PanelRole));
+  return [...new Set(roles)];
+}
+
+function getPrimaryPanelRole(roles: PanelRole[]): PanelRole | null {
+  for (const role of PANEL_ROLE_PRIORITY) {
+    if (roles.includes(role)) return role;
+  }
+  return null;
 }
 
 async function findUser(email?: string, phone?: string) {
@@ -93,6 +126,263 @@ router.post('/verify-otp', async (req, res) => {
     phone: user.phone,
     city: user.city,
     role: user.role || 'student'
+  });
+});
+
+router.post('/admin-login', async (req, res) => {
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const emailNorm = String(email).trim().toLowerCase();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.password_hash,
+            GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv
+     FROM users u
+     LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
+     WHERE u.email = ?
+     GROUP BY u.id
+     LIMIT 1`,
+    [emailNorm]
+  );
+
+  if (!rows.length) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  const user = rows[0];
+  const mappedRoles = parseCsv(user.rolesCsv).filter((role): role is PanelRole =>
+    ['admin', 'manager', 'employee'].includes(role)
+  );
+  const fallbackRole = ['admin', 'manager', 'employee'].includes(String(user.role || '').toLowerCase())
+    ? ([String(user.role).toLowerCase()] as PanelRole[])
+    : [];
+  const panelRoles = [...new Set([...mappedRoles, ...fallbackRole])];
+  const primaryRole = getPrimaryPanelRole(panelRoles);
+
+  if (!primaryRole) {
+    return res.status(403).json({ error: 'Admin panel access requires admin/manager/employee role' });
+  }
+
+  const hash = user.password_hash ? String(user.password_hash) : '';
+  if (!hash) {
+    return res.status(401).json({ error: 'Password not set for this admin account' });
+  }
+
+  const isValid = await bcrypt.compare(String(password), hash);
+  if (!isValid) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+
+  await pool.query<ResultSetHeader>(
+    `UPDATE users
+     SET last_login_at = NOW()
+     WHERE id = ?`,
+    [user.id]
+  );
+
+  res.json({
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    phone: user.phone,
+    city: user.city,
+    role: primaryRole,
+    roles: panelRoles
+  });
+});
+
+router.get('/leads-summary', async (_req, res) => {
+  const [dailyRows] = await pool.query<RowDataPacket[]>(
+    `SELECT DATE(created_at) AS day, COUNT(*) AS count
+     FROM users
+     WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+     GROUP BY DATE(created_at)
+     ORDER BY day ASC`
+  );
+
+  const [recentRows] = await pool.query<RowDataPacket[]>(
+    `SELECT id, name, email, phone, city, role, created_at AS createdAt
+     FROM users
+     ORDER BY created_at DESC
+     LIMIT 20`
+  );
+
+  const [totalRows] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS total FROM users');
+  const [recentLoginRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total
+     FROM users
+     WHERE last_login_at IS NOT NULL
+       AND last_login_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`
+  );
+  const [locationRows] = await pool.query<RowDataPacket[]>(
+    `SELECT
+        TRIM(COALESCE(NULLIF(city, ''), 'Unknown')) AS location,
+        COUNT(*) AS count
+     FROM users
+     GROUP BY TRIM(COALESCE(NULLIF(city, ''), 'Unknown'))
+     ORDER BY count DESC, location ASC
+     LIMIT 12`
+  );
+  const [todayReminderRows] = await pool.query<RowDataPacket[]>(
+    `SELECT lc.id,
+            lc.user_id AS userId,
+            u.name AS userName,
+            u.email AS userEmail,
+            u.phone AS userPhone,
+            lc.conversation_status AS conversationStatus,
+            lc.looking_for AS lookingFor,
+            lc.notes,
+            lc.reminder_at AS reminderAt
+     FROM lead_conversations lc
+     INNER JOIN users u ON u.id = lc.user_id
+     WHERE lc.reminder_at IS NOT NULL
+       AND DATE(lc.reminder_at) = CURDATE()
+       AND lc.reminder_done = 0
+     ORDER BY lc.reminder_at ASC
+     LIMIT 50`
+  );
+
+  const countsByDay = new Map<string, number>();
+  dailyRows.forEach((row) => {
+    const key = new Date(row.day).toISOString().slice(0, 10);
+    countsByDay.set(key, Number(row.count) || 0);
+  });
+
+  const dailyRegistrations = Array.from({ length: 14 }).map((_, index) => {
+    const date = new Date();
+    date.setHours(0, 0, 0, 0);
+    date.setDate(date.getDate() - (13 - index));
+    const key = date.toISOString().slice(0, 10);
+    return { day: key, count: countsByDay.get(key) || 0 };
+  });
+
+  res.json({
+    totalLeads: Number(totalRows[0]?.total || 0),
+    recentLoginCount: Number(recentLoginRows[0]?.total || 0),
+    dailyRegistrations,
+    recentUsers: recentRows,
+    todaysRemindersCount: todayReminderRows.length,
+    todaysReminders: todayReminderRows.map((row) => ({
+      id: Number(row.id),
+      userId: Number(row.userId),
+      userName: String(row.userName || ''),
+      userEmail: row.userEmail ? String(row.userEmail) : null,
+      userPhone: row.userPhone ? String(row.userPhone) : null,
+      conversationStatus: String(row.conversationStatus || 'new'),
+      lookingFor: row.lookingFor ? String(row.lookingFor) : null,
+      notes: row.notes ? String(row.notes) : null,
+      reminderAt: row.reminderAt
+    })),
+    usersByLocation: locationRows.map((row) => ({
+      location: String(row.location),
+      count: Number(row.count) || 0
+    }))
+  });
+});
+
+router.get('/users', async (_req, res) => {
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
+            GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv,
+            GROUP_CONCAT(DISTINCT uca.country_id ORDER BY uca.country_id SEPARATOR ',') AS countryIdsCsv
+     FROM users u
+     LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
+     LEFT JOIN user_country_access uca ON uca.user_id = u.id
+     GROUP BY u.id
+     ORDER BY u.created_at DESC
+     LIMIT 500`
+  );
+  res.json(
+    rows.map((row) => ({
+      ...row,
+      roles: parseCsv(row.rolesCsv),
+      countryIds: parseCsv(row.countryIdsCsv).map((id) => Number(id)).filter((id) => !Number.isNaN(id))
+    }))
+  );
+});
+
+router.post('/users', async (req, res) => {
+  const { name, email, phone, city, role, roles, countryIds, password } = req.body || {};
+
+  const nameValue = String(name || '').trim();
+  const emailValue = String(email || '').trim().toLowerCase();
+  const phoneValue = phone ? String(phone).trim() : null;
+  const cityValue = city ? String(city).trim() : null;
+
+  if (!nameValue || !emailValue) {
+    return res.status(400).json({ error: 'name and email are required' });
+  }
+
+  const selectedRoles = toPanelRoles(roles);
+  const fallbackRole = toPanelRoles(role);
+  const mergedRoles = [...new Set([...selectedRoles, ...fallbackRole])];
+  const roleValue = getPrimaryPanelRole(mergedRoles) || 'student';
+  const passwordValue = password ? String(password) : '';
+
+  const needsPassword = mergedRoles.length > 0;
+  if (needsPassword && passwordValue.length < 6) {
+    return res.status(400).json({ error: 'Password with at least 6 characters is required for admin/manager/employee roles' });
+  }
+
+  const passwordHash = passwordValue ? await bcrypt.hash(passwordValue, 10) : null;
+
+  const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailValue]);
+  if (existing.length) {
+    return res.status(409).json({ error: 'User with this email already exists' });
+  }
+
+  const [result] = await pool.query<ResultSetHeader>(
+    `INSERT INTO users (name, email, phone, city, role, password_hash)
+     VALUES (?, ?, ?, ?, ?, ?)`,
+    [nameValue, emailValue, phoneValue, cityValue, roleValue, passwordHash]
+  );
+
+  const id = (result as ResultSetHeader).insertId;
+
+  if (mergedRoles.length) {
+    await pool.query<ResultSetHeader>('DELETE FROM user_admin_roles WHERE user_id = ?', [id]);
+    await Promise.all(
+      mergedRoles.map((panelRole) =>
+        pool.query<ResultSetHeader>('INSERT INTO user_admin_roles (user_id, role) VALUES (?, ?)', [id, panelRole])
+      )
+    );
+  }
+
+  const normalizedCountryIds = Array.isArray(countryIds)
+    ? countryIds.map((value) => Number(value)).filter((value) => Number.isInteger(value) && value > 0)
+    : [];
+
+  if (normalizedCountryIds.length) {
+    await Promise.all(
+      normalizedCountryIds.map((countryId) =>
+        pool.query<ResultSetHeader>('INSERT IGNORE INTO user_country_access (user_id, country_id) VALUES (?, ?)', [
+          id,
+          countryId
+        ])
+      )
+    );
+  }
+
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
+            GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv,
+            GROUP_CONCAT(DISTINCT uca.country_id ORDER BY uca.country_id SEPARATOR ',') AS countryIdsCsv
+     FROM users u
+     LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
+     LEFT JOIN user_country_access uca ON uca.user_id = u.id
+     WHERE u.id = ?
+     GROUP BY u.id
+     LIMIT 1`,
+    [id]
+  );
+
+  const row = rows[0];
+  res.status(201).json({
+    ...row,
+    roles: parseCsv(row.rolesCsv),
+    countryIds: parseCsv(row.countryIdsCsv).map((item) => Number(item)).filter((item) => !Number.isNaN(item))
   });
 });
 

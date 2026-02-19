@@ -3,11 +3,10 @@ import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
 import DialogActions from "@mui/material/DialogActions";
 import Button from "@mui/material/Button";
-import Stack from "@mui/material/Stack";
 import Typography from "@mui/material/Typography";
 import Chip from "@mui/material/Chip";
 import type { Program } from "../../lib/api";
-
+import Stack from "@mui/material/Stack";
 type Props = {
   open: boolean;
   program: Program | null;
@@ -15,7 +14,12 @@ type Props = {
   onApply?: (program: Program) => void;
 };
 
-export default function ProgramDetailModal({ open, program, onClose, onApply }: Props) {
+export default function ProgramDetailModal({
+  open,
+  program,
+  onClose,
+  onApply,
+}: Props) {
   if (!program) return null;
 
   return (
@@ -30,19 +34,20 @@ export default function ProgramDetailModal({ open, program, onClose, onApply }: 
           spacing={1}
           flexWrap="wrap"
           useFlexGap
-          gutterBottom
           sx={{ mb: 2 }}
         >
-          {program.levelOfStudy && (
-            <Chip label={program.levelOfStudy} color="primary" size="small" />
-          )}
-          {program.languageOfStudy && (
-            <Chip label={program.languageOfStudy} size="small" />
-          )}
-          {program.country?.name && (
-            <Chip label={program.country.name} size="small" />
-          )}
-          {program.location && <Chip label={program.location} size="small" />}
+          <>
+            {program.levelOfStudy && (
+              <Chip label={program.levelOfStudy} color="primary" size="small" />
+            )}
+            {program.languageOfStudy && (
+              <Chip label={program.languageOfStudy} size="small" />
+            )}
+            {program.country?.name && (
+              <Chip label={program.country.name} size="small" />
+            )}
+            {program.location && <Chip label={program.location} size="small" />}
+          </>
         </Stack>
         {program.intakes && (
           <Typography gutterBottom>

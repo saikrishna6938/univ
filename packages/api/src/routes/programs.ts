@@ -178,9 +178,15 @@ async function findProgramId(programName: string, universityName: string): Promi
   return null;
 }
 
+function toNumberOrNull(value: unknown) {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  return Number.isNaN(parsed) ? null : parsed;
+}
+
 // GET /api/programs?search=&country=&level=
 router.get('/', async (req, res) => {
-  const { search, country, level } = req.query;
+  const { search, country, level, concentration, location } = req.query;
   const filters: string[] = [];
   const params: any[] = [];
 
@@ -204,6 +210,16 @@ router.get('/', async (req, res) => {
     params.push(`%${search}%`, `%${search}%`, `%${search}%`);
   }
 
+  if (concentration && typeof concentration === 'string') {
+    filters.push('p.concentration = ?');
+    params.push(concentration);
+  }
+
+  if (location && typeof location === 'string') {
+    filters.push('p.location = ?');
+    params.push(location);
+  }
+
   let sql =
     'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
     'LEFT JOIN countries c ON p.country_id = c.id';
@@ -220,7 +236,7 @@ router.get('/', async (req, res) => {
 
 // GET /api/programs/paginated?offset=0&limit=10&countryId=&search=&current_url_token_request=
 router.get('/paginated', async (req, res) => {
-  const { offset = '0', limit = '10', countryId, search, current_url_token_request } = req.query;
+  const { offset = '0', limit = '10', countryId, search, concentration, location, current_url_token_request } = req.query;
 
   if (env.requestToken && current_url_token_request !== env.requestToken) {
     return res.status(401).json({ error: 'Invalid request token' });
@@ -248,6 +264,16 @@ router.get('/paginated', async (req, res) => {
     params.push(like, like);
   }
 
+  if (concentration && typeof concentration === 'string') {
+    filters.push('p.concentration = ?');
+    params.push(concentration);
+  }
+
+  if (location && typeof location === 'string') {
+    filters.push('p.location = ?');
+    params.push(location);
+  }
+
   let sql =
     'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
     'LEFT JOIN countries c ON p.country_id = c.id';
@@ -271,7 +297,7 @@ router.post('/', async (req, res) => {
   }
 
   const countryId = await upsertCountry(body.country || body);
-  const num = (v: any) => (v === '' || v === undefined ? null : Number(v));
+  const num = (v: any) => toNumberOrNull(v);
   const values = [
     body.programName,
     body.universityName,
@@ -419,6 +445,93 @@ router.post('/', async (req, res) => {
     [id]
   );
   res.status(201).json(rows.length ? toProgram(rows[0]) : { id });
+});
+
+// PATCH /api/programs/:id (admin edit)
+router.patch('/:id', async (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || Number.isNaN(id)) {
+    return res.status(400).json({ error: 'Invalid program id' });
+  }
+
+  const [existingRows] = await pool.query<ProgramRow[]>('SELECT * FROM programs WHERE id = ? LIMIT 1', [id]);
+  if (!existingRows.length) {
+    return res.status(404).json({ error: 'Program not found' });
+  }
+
+  const existing = existingRows[0];
+  const body = req.body || {};
+
+  const fieldMap: Record<string, string> = {
+    programName: 'program_name',
+    universityName: 'university_name',
+    concentration: 'concentration',
+    levelOfStudy: 'level_of_study',
+    languageOfStudy: 'language_of_study',
+    location: 'location',
+    intakes: 'intakes',
+    deadlines: 'deadlines'
+  };
+  const numericFieldMap: Record<string, string> = {
+    tuitionFeePerYear: 'tuition_fee_per_year',
+    applicationFee: 'application_fee'
+  };
+
+  const updates: string[] = [];
+  const params: Array<string | number | null> = [];
+
+  Object.entries(fieldMap).forEach(([key, column]) => {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      updates.push(`${column} = ?`);
+      params.push(body[key] === '' ? null : (body[key] as string | null));
+    }
+  });
+
+  Object.entries(numericFieldMap).forEach(([key, column]) => {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      updates.push(`${column} = ?`);
+      params.push(toNumberOrNull(body[key]));
+    }
+  });
+
+  if (Object.prototype.hasOwnProperty.call(body, 'countryId')) {
+    updates.push('country_id = ?');
+    params.push(toNumberOrNull(body.countryId));
+  } else if (body.country) {
+    const countryId = await upsertCountry(body.country);
+    updates.push('country_id = ?');
+    params.push(countryId);
+  }
+
+  const existingData = existing.data ? JSON.parse(existing.data) : {};
+  const nextData = { ...existingData, ...body };
+  updates.push('data = ?');
+  params.push(JSON.stringify(nextData));
+
+  if (!updates.length) {
+    return res.status(400).json({ error: 'No editable fields provided' });
+  }
+
+  params.push(id);
+  await pool.query<ResultSetHeader>(
+    `UPDATE programs
+     SET ${updates.join(', ')},
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    params
+  );
+
+  const [rows] = await pool.query<ProgramRow[]>(
+    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
+      'LEFT JOIN countries c ON p.country_id = c.id WHERE p.id = ? LIMIT 1',
+    [id]
+  );
+
+  if (!rows.length) {
+    return res.status(404).json({ error: 'Program not found after update' });
+  }
+
+  res.json(toProgram(rows[0]));
 });
 
 export default router;

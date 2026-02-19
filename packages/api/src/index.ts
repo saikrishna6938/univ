@@ -10,7 +10,9 @@ import countriesRouter from './routes/countries';
 import featuredRouter from './routes/featured';
 import subscribersRouter from './routes/subscribers';
 import concentrationsRouter from './routes/concentrations';
+import locationsRouter from './routes/locations';
 import eventsRouter from './routes/events';
+import leadConversationsRouter from './routes/leadConversations';
 
 async function start() {
   await connectToDatabase();
@@ -40,7 +42,9 @@ async function start() {
   app.use('/api/featured', featuredRouter);
   app.use('/api/subscribers', subscribersRouter);
   app.use('/api/concentrations', concentrationsRouter);
+  app.use('/api/locations', locationsRouter);
   app.use('/api/events', eventsRouter);
+  app.use('/api/lead-conversations', leadConversationsRouter);
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(err);
