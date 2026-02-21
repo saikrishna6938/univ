@@ -4,6 +4,11 @@ import Home from './pages/Home';
 import Programs from './pages/Programs';
 import Apply from './pages/Apply';
 import FindCourse from './pages/FindCourse';
+import StudentDashboard from './pages/StudentDashboard';
+import LoginPage from './pages/LoginPage';
+import ScholarshipBlogPage from './pages/ScholarshipBlogPage';
+import StudyGuideBlogPage from './pages/StudyGuideBlogPage';
+import ExamBlogPage from './pages/ExamBlogPage';
 import AdminLayout from './layouts/AdminLayout';
 import { AdminAuthProvider, useAdminAuth } from './layouts/AdminAuthContext';
 import AdminLoginPage from './pages/admin/AdminLoginPage';
@@ -13,6 +18,9 @@ import AdminTasksPage from './pages/admin/AdminTasksPage';
 import AdminUsersPage from './pages/admin/AdminUsersPage';
 import AdminFeaturedUniversitiesPage from './pages/admin/AdminFeaturedUniversitiesPage';
 import AdminEventsPage from './pages/admin/AdminEventsPage';
+import AdminScholarshipsPage from './pages/admin/AdminScholarshipsPage';
+import AdminStudyGuidesPage from './pages/admin/AdminStudyGuidesPage';
+import AdminExamsPage from './pages/admin/AdminExamsPage';
 import type { ReactElement } from 'react';
 import './App.css';
 
@@ -71,7 +79,7 @@ function App() {
           <Route
             path="programs"
             element={
-              <RoleAllowed roles={['admin', 'manager']}>
+              <RoleAllowed roles={['admin', 'manager', 'employee']}>
                 <AdminProgramsPage />
               </RoleAllowed>
             }
@@ -89,6 +97,30 @@ function App() {
             element={
               <RoleAllowed roles={['admin', 'manager']}>
                 <AdminEventsPage />
+              </RoleAllowed>
+            }
+          />
+          <Route
+            path="scholarships"
+            element={
+              <RoleAllowed roles={['admin', 'manager', 'employee']}>
+                <AdminScholarshipsPage />
+              </RoleAllowed>
+            }
+          />
+          <Route
+            path="study-guides"
+            element={
+              <RoleAllowed roles={['admin', 'manager', 'employee']}>
+                <AdminStudyGuidesPage />
+              </RoleAllowed>
+            }
+          />
+          <Route
+            path="exams"
+            element={
+              <RoleAllowed roles={['admin', 'manager', 'employee']}>
+                <AdminExamsPage />
               </RoleAllowed>
             }
           />
@@ -139,6 +171,46 @@ function App() {
           element={
             <MainLayout>
               <FindCourse />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/login"
+          element={
+            <MainLayout>
+              <LoginPage />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/student/dashboard"
+          element={
+            <MainLayout>
+              <StudentDashboard />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/scholarships/:id"
+          element={
+            <MainLayout>
+              <ScholarshipBlogPage />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/study-guides/:id"
+          element={
+            <MainLayout>
+              <StudyGuideBlogPage />
+            </MainLayout>
+          }
+        />
+        <Route
+          path="/exams/:id"
+          element={
+            <MainLayout>
+              <ExamBlogPage />
             </MainLayout>
           }
         />

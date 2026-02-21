@@ -1,11 +1,20 @@
 import './find-course.css';
 import { useEffect, useMemo, useState } from 'react';
-import { fetchConcentrations, fetchLocations, type ConcentrationItem, type LocationItem } from './api';
+import {
+  fetchConcentrations,
+  fetchLocations,
+  fetchUniversities,
+  type ConcentrationItem,
+  type LocationItem,
+  type UniversityItem
+} from './api';
 
 const fees = ['0 - 25K', '25 - 50K', '50 - 75K', '75K - 1L', '1 - 2L'];
 
 type Props = {
   countryId?: string;
+  selectedUniversity?: string;
+  onSelectUniversity: (university?: string) => void;
   selectedConcentration?: string;
   onSelectConcentration: (concentration?: string) => void;
   selectedLocation?: string;
@@ -14,11 +23,18 @@ type Props = {
 
 export default function FiltersSidebar({
   countryId,
+  selectedUniversity,
+  onSelectUniversity,
   selectedConcentration,
   onSelectConcentration,
   selectedLocation,
   onSelectLocation
 }: Props) {
+  const [universities, setUniversities] = useState<UniversityItem[]>([]);
+  const [universitiesLoading, setUniversitiesLoading] = useState(false);
+  const [universitiesError, setUniversitiesError] = useState<string | null>(null);
+  const [universityQuery, setUniversityQuery] = useState('');
+  const [showUniversityOptions, setShowUniversityOptions] = useState(false);
   const [concentrations, setConcentrations] = useState<ConcentrationItem[]>([]);
   const [locations, setLocations] = useState<LocationItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -29,6 +45,29 @@ export default function FiltersSidebar({
   const [showConcentrationOptions, setShowConcentrationOptions] = useState(false);
   const [locationQuery, setLocationQuery] = useState('');
   const [showLocationOptions, setShowLocationOptions] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    setUniversitiesLoading(true);
+    setUniversitiesError(null);
+    fetchUniversities(countryId)
+      .then((items) => {
+        if (!active) return;
+        setUniversities(items);
+      })
+      .catch((err) => {
+        if (!active) return;
+        setUniversitiesError((err as Error).message || 'Failed to load universities');
+      })
+      .finally(() => {
+        if (!active) return;
+        setUniversitiesLoading(false);
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [countryId]);
 
   useEffect(() => {
     let active = true;
@@ -86,6 +125,17 @@ export default function FiltersSidebar({
     [concentrations]
   );
 
+  const visibleUniversities = useMemo(
+    () => universities.filter((item) => item.universityName && item.universityName.trim() !== ''),
+    [universities]
+  );
+
+  const filteredUniversities = useMemo(() => {
+    const term = universityQuery.trim().toLowerCase();
+    if (!term) return visibleUniversities;
+    return visibleUniversities.filter((item) => item.universityName.toLowerCase().includes(term));
+  }, [visibleUniversities, universityQuery]);
+
   const filteredConcentrations = useMemo(() => {
     const term = concentrationQuery.trim().toLowerCase();
     if (!term) return visibleConcentrations;
@@ -107,6 +157,10 @@ export default function FiltersSidebar({
   }, [visibleLocations, locationQuery]);
 
   useEffect(() => {
+    setUniversityQuery(selectedUniversity || '');
+  }, [selectedUniversity]);
+
+  useEffect(() => {
     const selectedName = visibleConcentrations.find(
       (item) => (item.concentrationName || item.concentration || '') === selectedConcentration
     )?.concentrationName;
@@ -121,6 +175,71 @@ export default function FiltersSidebar({
   return (
     <div className="fc-sidebar">
       <div className="fc-sidebar__heading">Filter By</div>
+      <div className="fc-sidebar__section">
+        <div className="fc-sidebar__title">University</div>
+        <div className="fc-sidebar__list">
+          <div className="fc-select-wrap">
+            <input
+              className="fc-select fc-select--editable"
+              value={universityQuery}
+              placeholder="Type to search university"
+              onFocus={() => setShowUniversityOptions(true)}
+              onChange={(e) => {
+                const value = e.target.value;
+                setUniversityQuery(value);
+                setShowUniversityOptions(true);
+                if (!value.trim()) onSelectUniversity(undefined);
+              }}
+              onKeyDown={(e) => {
+                if (e.key !== 'Enter') return;
+                const exact = visibleUniversities.find(
+                  (item) => item.universityName.toLowerCase() === universityQuery.trim().toLowerCase()
+                );
+                onSelectUniversity(exact?.universityName);
+                setUniversityQuery(exact?.universityName || universityQuery);
+                setShowUniversityOptions(false);
+              }}
+              onBlur={() => {
+                setTimeout(() => setShowUniversityOptions(false), 120);
+              }}
+            />
+            {showUniversityOptions && (
+              <div className="fc-select-options">
+                <button
+                  type="button"
+                  className={`fc-select-option ${!selectedUniversity ? 'is-active' : ''}`}
+                  onMouseDown={() => {
+                    onSelectUniversity(undefined);
+                    setUniversityQuery('');
+                    setShowUniversityOptions(false);
+                  }}
+                >
+                  All
+                </button>
+                {filteredUniversities.map((item) => (
+                  <button
+                    type="button"
+                    key={item.universityName}
+                    className={`fc-select-option ${selectedUniversity === item.universityName ? 'is-active' : ''}`}
+                    onMouseDown={() => {
+                      onSelectUniversity(item.universityName);
+                      setUniversityQuery(item.universityName);
+                      setShowUniversityOptions(false);
+                    }}
+                  >
+                    {item.universityName}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          {universitiesLoading && <span className="fc-sidebar__note">Loading universities...</span>}
+          {!universitiesLoading && !universitiesError && visibleUniversities.length === 0 && (
+            <span className="fc-sidebar__note">No universities found</span>
+          )}
+          {universitiesError && <span className="fc-sidebar__note fc-sidebar__note--error">{universitiesError}</span>}
+        </div>
+      </div>
       <div className="fc-sidebar__section">
         <div className="fc-sidebar__title">Concentration</div>
         <div className="fc-sidebar__list">

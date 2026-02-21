@@ -3,38 +3,38 @@ import "./GuidanceHome.css";
 const items = [
   {
     title: "Profile Evaluation",
-    desc: "Once you submit your application, our expert team evaluates your profile on education, work exp. & objectives",
-    cta: "Register Now",
+    desc: "Share your academic and career background, and we map out realistic program options for your goals.",
+    cta: "Get Started",
     icon: "🧭",
   },
   {
     title: "Admission Guidance",
-    desc: "Counsellors help you identify the right country, college and program or arrange mentorship from existing students",
-    cta: "Get Mentorship",
+    desc: "Work with our team to finalize the right country, university, and course based on your profile and budget.",
+    cta: "Talk to an Expert",
     icon: "🎓",
   },
   {
     title: "Test Prep & Webinar",
-    desc: "Free tips and tricks to crack IELTS, TOEFL, DET, SAT, GRE, GMAT plus cut‑off scores for top universities.",
-    cta: "Register For Webinar",
+    desc: "Get preparation support for major tests and attend focused sessions on requirements and deadlines.",
+    cta: "Join Session",
     icon: "🧠",
   },
   {
     title: "Application Document & Essay",
-    desc: "We check every application & essay before submitting and assist you at each step while preparing documents.",
-    cta: "Avail Services",
+    desc: "Build a complete application pack with structured help for SOPs, essays, and supporting documents.",
+    cta: "Prepare Documents",
     icon: "📝",
   },
   {
     title: "Visa & Interview",
-    desc: "With top visa approval rates, our team guides you on the best ways to earn a study visa at your dream destination.",
-    cta: "Get Information",
+    desc: "Receive step-by-step visa documentation help and interview practice tailored to your destination.",
+    cta: "Plan Visa",
     icon: "🛂",
   },
   {
     title: "Scholarships & Financial Aid",
-    desc: "We guide you on expenses, internships, education loans, and scholarships to fund your studies.",
-    cta: "Find Scholarships",
+    desc: "Understand total costs, funding options, and scholarship opportunities before you finalize your admit.",
+    cta: "Explore Funding",
     icon: "💰",
   },
 ];
@@ -43,11 +43,10 @@ export default function GuidanceHome() {
   return (
     <section className="guidance">
       <div className="guidance__header">
-        <h2>Free Counselling: Let Us Guide You</h2>
+        <h2>End-to-End Student Guidance</h2>
         <p>
-          Looking into study abroad colleges and universities as an international student can be a challenge, but it's one
-          you can overcome! From how to look for accredited schools to what you should write about on your applications,
-          our expert counsellors will help you at every step.
+          Gradwalk supports you through each stage of the process, from choosing the right program to submitting strong
+          applications and preparing for your visa.
         </p>
       </div>
       <div className="guidance__grid">

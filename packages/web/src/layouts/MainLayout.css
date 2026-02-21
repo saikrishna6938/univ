@@ -97,12 +97,130 @@
   align-items: center;
 }
 
+.header-dashboard-btn {
+  height: 44px;
+  text-transform: none !important;
+  white-space: nowrap;
+  color: #e2e8f0 !important;
+  border-color: rgba(255, 255, 255, 0.24) !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.header-dashboard-btn:hover {
+  border-color: rgba(125, 211, 252, 0.55) !important;
+  background: rgba(56, 189, 248, 0.16) !important;
+}
+
+.subheader-toggle-btn {
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  border-radius: 10px !important;
+  width: 40px;
+  height: 40px;
+}
+
 .apply-btn {
   text-transform: none !important;
 }
 
 .layout-content {
   flex: 1;
+}
+
+.desktop-subheader {
+  display: none;
+  position: relative;
+  border-top: 1px solid rgba(148, 163, 184, 0.26);
+  background:
+    radial-gradient(
+      48rem 18rem at -10% 0%,
+      rgba(56, 189, 248, 0.22),
+      transparent 60%
+    ),
+    radial-gradient(
+      40rem 18rem at 110% 0%,
+      rgba(59, 130, 246, 0.2),
+      transparent 62%
+    ),
+    linear-gradient(180deg, #111827 0%, #1e293b 100%);
+  padding: 10px 54px 10px 24px;
+  gap: 8px;
+}
+
+.desktop-subheader__toggle-btn {
+  position: absolute !important;
+  top: 6px;
+  right: 12px;
+  border: 1px solid rgba(148, 163, 184, 0.4) !important;
+  border-radius: 10px !important;
+  width: 32px;
+  height: 32px;
+  color: #dbeafe !important;
+}
+
+.desktop-subheader__row {
+  display: grid;
+  grid-template-columns: 82px 1fr;
+  align-items: stretch;
+  gap: 10px;
+  min-height: 34px;
+}
+
+.desktop-subheader__label {
+  display: flex;
+  align-items: center;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: #94a3b8;
+  font-weight: 700;
+}
+
+.desktop-subheader__scroller {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 8px;
+  overflow: visible;
+  min-height: 34px;
+}
+
+.desktop-subheader__pill {
+  border: 1px solid rgba(148, 163, 184, 0.42);
+  background: rgba(30, 41, 59, 0.75);
+  color: #e2e8f0;
+  border-radius: 8px;
+  height: 28px;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.desktop-subheader__pill.is-active {
+  border-color: #38bdf8;
+  background: rgba(3, 105, 161, 0.36);
+  color: #e0f2fe;
+}
+
+.desktop-subheader__hint {
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.desktop-subheader__search {
+  width: 320px;
+  max-width: 100%;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.46);
+  background: rgba(30, 41, 59, 0.8);
+  color: #e2e8f0;
+  padding: 0 10px;
+  font-size: 0.78rem;
+  outline: none;
 }
 
 .layout-footer {
@@ -274,5 +392,11 @@
   }
   .layout-footer__inner {
     flex-direction: column;
+  }
+}
+
+@media (min-width: 1200px) {
+  .desktop-subheader {
+    display: grid;
   }
 }

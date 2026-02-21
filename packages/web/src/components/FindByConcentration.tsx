@@ -33,10 +33,9 @@ export default function FindByConcentration() {
   return (
     <section className="concentration">
       <div className="concentration__header">
-        <h2>Choose Your Future</h2>
+        <h2>Explore Programs by Interest Area</h2>
         <p>
-          Looking into Study Abroad Colleges and Universities as an international student can be a challenge, but it's one
-          you can overcome! Our expert counsellors will help you at every step.
+          Browse top study areas and quickly see where the most program options are available for your goals.
         </p>
       </div>
       <div className="concentration__grid">

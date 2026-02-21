@@ -1,4 +1,6 @@
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
+import DescriptionRounded from '@mui/icons-material/DescriptionRounded';
+import EditOutlined from '@mui/icons-material/EditOutlined';
 import {
   Alert,
   Box,
@@ -14,20 +16,20 @@ import {
   Select,
   Skeleton,
   Stack,
-  Table,
-  TableBody,
+  IconButton,
   TableCell,
-  TableContainer,
-  TableHead,
+  TablePagination,
   TableRow,
   TableSortLabel,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
-import type { EmployeeTask } from '../../lib/api';
-import { fetchEmployeeTasks, updateEmployeeTask } from '../../lib/api';
+import type { EmployeeTask, StudentDocument } from '../../lib/api';
+import { fetchApplicationStudentDocuments, fetchEmployeeTasks, updateEmployeeTask } from '../../lib/api';
+import AdminDataTable from '../../components/admin/AdminDataTable';
 import './admin.css';
 
 type SortField =
@@ -56,6 +58,7 @@ function getTaskAgingStatus(task: EmployeeTask): 'on_time' | 'aging' | 'critical
 
 export default function AdminTasksPage() {
   const { adminUser } = useAdminAuth();
+  const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:4000';
   const [tasks, setTasks] = useState<EmployeeTask[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -63,8 +66,14 @@ export default function AdminTasksPage() {
   const [selectedTask, setSelectedTask] = useState<EmployeeTask | null>(null);
   const [taskStatus, setTaskStatus] = useState<'under_process' | 'completed'>('under_process');
   const [taskNotes, setTaskNotes] = useState('');
+  const [documentsOpen, setDocumentsOpen] = useState(false);
+  const [documentsLoading, setDocumentsLoading] = useState(false);
+  const [documentsTask, setDocumentsTask] = useState<EmployeeTask | null>(null);
+  const [documents, setDocuments] = useState<StudentDocument[]>([]);
   const [sortField, setSortField] = useState<SortField>('createdAt');
   const [sortDirection, setSortDirection] = useState<SortDirection>('desc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
 
   useEffect(() => {
     let mounted = true;
@@ -140,6 +149,18 @@ export default function AdminTasksPage() {
     });
   }, [tasks, sortField, sortDirection]);
 
+  const pagedTasks = useMemo(() => {
+    const start = page * rowsPerPage;
+    return sortedTasks.slice(start, start + rowsPerPage);
+  }, [sortedTasks, page, rowsPerPage]);
+
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(sortedTasks.length / rowsPerPage) - 1);
+    if (page > maxPage) {
+      setPage(maxPage);
+    }
+  }, [sortedTasks.length, rowsPerPage, page]);
+
   function SortableHeader({ field, label }: { field: SortField; label: string }) {
     return (
       <TableSortLabel active={sortField === field} direction={sortField === field ? sortDirection : 'asc'} onClick={() => handleSort(field)}>
@@ -186,6 +207,28 @@ export default function AdminTasksPage() {
     }
   }
 
+  async function openDocumentsDialog(task: EmployeeTask) {
+    if (!adminUser?.id) return;
+    setDocumentsTask(task);
+    setDocumentsOpen(true);
+    setDocuments([]);
+    setDocumentsLoading(true);
+    try {
+      const rows = await fetchApplicationStudentDocuments(task.id, adminUser.id);
+      setDocuments(rows);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load student documents');
+    } finally {
+      setDocumentsLoading(false);
+    }
+  }
+
+  function toAbsoluteFileUrl(url?: string | null) {
+    if (!url) return '';
+    if (url.startsWith('http://') || url.startsWith('https://')) return url;
+    return `${apiUrl}${url}`;
+  }
+
   return (
     <Box className="admin-dashboard">
       {error ? (
@@ -204,52 +247,74 @@ export default function AdminTasksPage() {
         </Box>
 
         <Box className="admin-panel__body">
-          <TableContainer sx={{ maxHeight: 720 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell><SortableHeader field="applicantName" label="Applicant" /></TableCell>
-                  <TableCell><SortableHeader field="email" label="Applicant Contact" /></TableCell>
-                  <TableCell><SortableHeader field="programName" label="Program" /></TableCell>
-                  <TableCell><SortableHeader field="countryName" label="Country" /></TableCell>
-                  <TableCell><SortableHeader field="taskStatus" label="Task Status" /></TableCell>
-                  <TableCell><SortableHeader field="taskAgingStatus" label="Aging" /></TableCell>
-                  <TableCell>Task Notes</TableCell>
-                  <TableCell><SortableHeader field="createdAt" label="Created" /></TableCell>
-                  <TableCell align="right">Action</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading
-                  ? Array.from({ length: 10 }).map((_, idx) => (
-                      <TableRow key={`task-skeleton-${idx}`}>
-                        <TableCell colSpan={9}>
-                          <Skeleton height={30} />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  : sortedTasks.map((task) => (
-                      <TableRow hover key={task.id}>
+          <AdminDataTable
+            tableMinWidth={1280}
+            tableLayout="auto"
+            maxBodyHeight={{
+              xs: 'calc(100vh - 390px)',
+              md: 'calc(100vh - 360px)'
+            }}
+            minBodyHeight={{
+              xs: 'calc(100vh - 500px)',
+              md: 'calc(100vh - 450px)'
+            }}
+            headerSx={{
+              '& .MuiTableCell-root': {
+                maxWidth: 200,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }
+            }}
+            bodySx={{
+              '& .MuiTableCell-root': {
+                maxWidth: 200
+              }
+            }}
+            headerRow={
+              <TableRow>
+                <TableCell><SortableHeader field="applicantName" label="Applicant" /></TableCell>
+                <TableCell><SortableHeader field="email" label="Applicant Contact" /></TableCell>
+                <TableCell><SortableHeader field="programName" label="Program" /></TableCell>
+                <TableCell><SortableHeader field="countryName" label="Country" /></TableCell>
+                <TableCell><SortableHeader field="taskStatus" label="Task Status" /></TableCell>
+                <TableCell><SortableHeader field="taskAgingStatus" label="Aging" /></TableCell>
+                <TableCell>Task Notes</TableCell>
+                <TableCell><SortableHeader field="createdAt" label="Created" /></TableCell>
+                <TableCell align="right">Action</TableCell>
+              </TableRow>
+            }
+            bodyRows={
+              loading
+                ? Array.from({ length: 10 }).map((_, idx) => (
+                    <TableRow key={`task-skeleton-${idx}`}>
+                      <TableCell colSpan={9}>
+                        <Skeleton height={30} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : pagedTasks.map((task) => (
+                    <TableRow hover key={task.id}>
                         <TableCell>
-                          <Typography variant="body2" fontWeight={700}>
+                          <Typography variant="body2" fontWeight={700} noWrap>
                             {task.applicantName}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">{task.email}</Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="body2" noWrap>{task.email}</Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
                             {task.phone || '-'}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">{task.programName || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="body2" noWrap>{task.programName || '-'}</Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
                             {task.universityName || '-'}
                           </Typography>
                         </TableCell>
                         <TableCell>
-                          <Typography variant="body2">{task.countryName || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary">
+                          <Typography variant="body2" noWrap>{task.countryName || '-'}</Typography>
+                          <Typography variant="caption" color="text.secondary" noWrap>
                             {task.countryIsoCode || '-'}
                           </Typography>
                         </TableCell>
@@ -270,18 +335,40 @@ export default function AdminTasksPage() {
                             return <Chip size="small" label="Critical" color="error" variant="outlined" />;
                           })()}
                         </TableCell>
-                        <TableCell>{task.taskNotes || '-'}</TableCell>
-                        <TableCell>{new Date(task.createdAt).toLocaleString()}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.taskNotes || '-'}</TableCell>
+                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{new Date(task.createdAt).toLocaleString()}</TableCell>
                         <TableCell align="right">
-                          <Button size="small" variant="outlined" onClick={() => openManageDialog(task)}>
-                            Manage
-                          </Button>
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="View student documents">
+                              <IconButton size="small" color="primary" onClick={() => openDocumentsDialog(task)}>
+                                <DescriptionRounded fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Manage task">
+                              <IconButton size="small" color="primary" onClick={() => openManageDialog(task)}>
+                                <EditOutlined fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                          </Stack>
                         </TableCell>
-                      </TableRow>
-                    ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                    </TableRow>
+                  ))
+            }
+          />
+          {!loading ? (
+            <TablePagination
+              component="div"
+              count={sortedTasks.length}
+              page={page}
+              onPageChange={(_event, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(event) => {
+                setRowsPerPage(parseInt(event.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50]}
+            />
+          ) : null}
         </Box>
       </Box>
 
@@ -324,6 +411,56 @@ export default function AdminTasksPage() {
           </Button>
           <Button variant="contained" onClick={saveTask} disabled={saving || !selectedTask}>
             {saving ? 'Saving...' : 'Save'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog fullWidth maxWidth="md" open={documentsOpen} onClose={() => setDocumentsOpen(false)}>
+        <DialogTitle>
+          Student Documents
+        </DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            {documentsTask
+              ? `${documentsTask.applicantName} • ${documentsTask.email}`
+              : ''}
+          </Typography>
+          <Stack spacing={1}>
+            {documentsLoading ? (
+              Array.from({ length: 4 }).map((_, idx) => <Skeleton key={`doc-skeleton-${idx}`} height={34} />)
+            ) : documents.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">
+                No documents uploaded by this student.
+              </Typography>
+            ) : (
+              documents.map((doc) => (
+                <Box key={doc.id} sx={{ border: '1px solid #e2e8f0', borderRadius: 1.5, p: 1.2, bgcolor: '#f8fafc' }}>
+                  <Typography variant="body2" fontWeight={700}>
+                    {doc.documentName}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {doc.originalFileName || '-'} • {new Date(doc.createdAt).toLocaleString()}
+                  </Typography>
+                  <Box sx={{ mt: 0.8 }}>
+                    <Button
+                      component="a"
+                      href={toAbsoluteFileUrl(doc.fileUrl)}
+                      target="_blank"
+                      rel="noreferrer"
+                      size="small"
+                      variant="outlined"
+                    >
+                      View / Download
+                    </Button>
+                  </Box>
+                </Box>
+              ))
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDocumentsOpen(false)} color="inherit">
+            Close
           </Button>
         </DialogActions>
       </Dialog>

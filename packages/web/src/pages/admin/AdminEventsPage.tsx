@@ -1,4 +1,6 @@
 import EventRounded from '@mui/icons-material/EventRounded';
+import EditOutlined from '@mui/icons-material/EditOutlined';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import {
   Alert,
   Box,
@@ -10,16 +12,15 @@ import {
   DialogTitle,
   Skeleton,
   Stack,
-  Table,
-  TableBody,
+  IconButton,
   TableCell,
-  TableContainer,
-  TableHead,
+  TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   createAdminEvent,
   deleteAdminEvent,
@@ -27,6 +28,7 @@ import {
   type AdminEvent,
   updateAdminEvent
 } from '../../lib/api';
+import AdminDataTable from '../../components/admin/AdminDataTable';
 import './admin.css';
 
 type EventForm = {
@@ -51,6 +53,8 @@ export default function AdminEventsPage() {
   const [error, setError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<AdminEvent | null>(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [form, setForm] = useState<EventForm>({
     degree: '',
     program: '',
@@ -81,6 +85,18 @@ export default function AdminEventsPage() {
       mounted = false;
     };
   }, []);
+
+  const pagedEvents = useMemo(() => {
+    const start = page * rowsPerPage;
+    return events.slice(start, start + rowsPerPage);
+  }, [events, page, rowsPerPage]);
+
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(events.length / rowsPerPage) - 1);
+    if (page > maxPage) {
+      setPage(maxPage);
+    }
+  }, [events.length, rowsPerPage, page]);
 
   function resetForm() {
     setForm({ degree: '', program: '', university: '', logo: '', title: '', eventDate: '' });
@@ -178,49 +194,74 @@ export default function AdminEventsPage() {
           </Stack>
         </Box>
         <Box className="admin-panel__body">
-          <TableContainer sx={{ maxHeight: 700 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Degree</TableCell>
-                  <TableCell>Program</TableCell>
-                  <TableCell>University</TableCell>
-                  <TableCell>Event</TableCell>
-                  <TableCell>Date</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading
-                  ? Array.from({ length: 8 }).map((_, idx) => (
-                      <TableRow key={`event-skeleton-${idx}`}>
-                        <TableCell colSpan={6}>
-                          <Skeleton height={30} />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  : events.map((item) => (
-                      <TableRow hover key={item.id}>
-                        <TableCell>{item.degree}</TableCell>
-                        <TableCell>{item.program}</TableCell>
-                        <TableCell>{item.university}</TableCell>
-                        <TableCell>{item.title}</TableCell>
-                        <TableCell>{new Date(item.eventDate).toLocaleDateString()}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            <Button size="small" variant="outlined" onClick={() => openEdit(item)}>
-                              Edit
-                            </Button>
-                            <Button size="small" color="error" variant="outlined" onClick={() => remove(item)}>
-                              Delete
-                            </Button>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <AdminDataTable
+            tableMinWidth={980}
+            maxBodyHeight={{
+              xs: 'calc(100vh - 390px)',
+              md: 'calc(100vh - 360px)'
+            }}
+            minBodyHeight={{
+              xs: 'calc(100vh - 500px)',
+              md: 'calc(100vh - 450px)'
+            }}
+            headerRow={
+              <TableRow>
+                <TableCell>Degree</TableCell>
+                <TableCell>Program</TableCell>
+                <TableCell>University</TableCell>
+                <TableCell>Event</TableCell>
+                <TableCell>Date</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            }
+            bodyRows={
+              loading
+                ? Array.from({ length: 8 }).map((_, idx) => (
+                    <TableRow key={`event-skeleton-${idx}`}>
+                      <TableCell colSpan={6}>
+                        <Skeleton height={30} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : pagedEvents.map((item) => (
+                    <TableRow hover key={item.id}>
+                      <TableCell>{item.degree}</TableCell>
+                      <TableCell>{item.program}</TableCell>
+                      <TableCell>{item.university}</TableCell>
+                      <TableCell>{item.title}</TableCell>
+                      <TableCell>{new Date(item.eventDate).toLocaleDateString()}</TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Tooltip title="Edit event">
+                            <IconButton size="small" color="primary" onClick={() => openEdit(item)}>
+                              <EditOutlined fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete event">
+                            <IconButton size="small" color="error" onClick={() => remove(item)}>
+                              <DeleteOutlineRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))
+            }
+          />
+          {!loading ? (
+            <TablePagination
+              component="div"
+              count={events.length}
+              page={page}
+              onPageChange={(_event, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(event) => {
+                setRowsPerPage(parseInt(event.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50]}
+            />
+          ) : null}
         </Box>
       </Box>
 

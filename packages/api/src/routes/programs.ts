@@ -186,7 +186,7 @@ function toNumberOrNull(value: unknown) {
 
 // GET /api/programs?search=&country=&level=
 router.get('/', async (req, res) => {
-  const { search, country, level, concentration, location } = req.query;
+  const { search, country, level, concentration, location, university } = req.query;
   const filters: string[] = [];
   const params: any[] = [];
 
@@ -220,6 +220,11 @@ router.get('/', async (req, res) => {
     params.push(location);
   }
 
+  if (university && typeof university === 'string') {
+    filters.push('p.university_name LIKE ?');
+    params.push(`%${university}%`);
+  }
+
   let sql =
     'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
     'LEFT JOIN countries c ON p.country_id = c.id';
@@ -236,7 +241,7 @@ router.get('/', async (req, res) => {
 
 // GET /api/programs/paginated?offset=0&limit=10&countryId=&search=&current_url_token_request=
 router.get('/paginated', async (req, res) => {
-  const { offset = '0', limit = '10', countryId, search, concentration, location, current_url_token_request } = req.query;
+  const { offset = '0', limit = '10', countryId, search, concentration, location, university, current_url_token_request, includeTotal } = req.query;
 
   if (env.requestToken && current_url_token_request !== env.requestToken) {
     return res.status(401).json({ error: 'Invalid request token' });
@@ -274,6 +279,11 @@ router.get('/paginated', async (req, res) => {
     params.push(location);
   }
 
+  if (university && typeof university === 'string') {
+    filters.push('p.university_name LIKE ?');
+    params.push(`%${university}%`);
+  }
+
   let sql =
     'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
     'LEFT JOIN countries c ON p.country_id = c.id';
@@ -283,10 +293,58 @@ router.get('/paginated', async (req, res) => {
   }
 
   sql += ' ORDER BY p.created_at DESC LIMIT ? OFFSET ?';
-  params.push(lim, off);
+  const pageParams = [...params, lim, off];
 
-  const [rows] = await pool.query<ProgramRow[]>(sql, params);
-  res.json(rows.map(toProgram));
+  const [rows] = await pool.query<ProgramRow[]>(sql, pageParams);
+  const items = rows.map(toProgram);
+
+  if (String(includeTotal) === '1' || String(includeTotal).toLowerCase() === 'true') {
+    let countSql = 'SELECT COUNT(*) AS total FROM programs p LEFT JOIN countries c ON p.country_id = c.id';
+    if (filters.length) {
+      countSql += ' WHERE ' + filters.join(' AND ');
+    }
+    const [countRows] = await pool.query<RowDataPacket[]>(countSql, params);
+    const total = Number(countRows[0]?.total ?? 0);
+    return res.json({ items, total });
+  }
+
+  res.json(items);
+});
+
+// GET /api/programs/universities?country=2
+router.get('/universities', async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=300, s-maxage=300, stale-while-revalidate=600');
+  const { country } = req.query;
+  const filters: string[] = ["p.university_name IS NOT NULL", "TRIM(p.university_name) <> ''"];
+  const params: any[] = [];
+
+  if (country) {
+    if (!Number.isNaN(Number(country))) {
+      filters.push('p.country_id = ?');
+      params.push(Number(country));
+    } else {
+      filters.push('c.iso_code = ?');
+      params.push(String(country));
+    }
+  }
+
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT p.university_name AS universityName, COUNT(*) AS programsCount
+     FROM programs p
+     LEFT JOIN countries c ON c.id = p.country_id
+     WHERE ${filters.join(' AND ')}
+     GROUP BY p.university_name
+     ORDER BY programsCount DESC, p.university_name ASC
+     LIMIT 500`,
+    params
+  );
+
+  res.json(
+    rows.map((row) => ({
+      universityName: String(row.universityName || ''),
+      programsCount: Number(row.programsCount) || 0
+    }))
+  );
 });
 
 // POST /api/programs (admin seeding)

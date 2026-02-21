@@ -13,10 +13,11 @@ import { fetchProgramsPaginated } from "./api";
 import "./find-course.css";
 import ShortlistModal, { type FormState as LeadForm } from "../ShortlistModal";
 import { useAuth } from "../../layouts/AuthContext";
-import { submitApplication } from "../../lib/api";
+import { fetchMyApplications, submitApplication } from "../../lib/api";
 
 const PAGE_SIZE = 10;
 const SHORTLIST_LEAD_KEY = "shortlist_lead";
+const LIKED_PROGRAMS_KEY_PREFIX = "liked_programs";
 
 export default function FindCourseLayout() {
   const { selectedCountryId } = useCountry();
@@ -24,9 +25,11 @@ export default function FindCourseLayout() {
   const navigate = useNavigate();
 
   const initialSearch = searchParams.get("q") || "";
+  const initialUniversity = searchParams.get("university") || "";
   const initialConcentration = searchParams.get("concentration") || "";
   const initialLocation = searchParams.get("location") || "";
   const [search, setSearch] = useState(initialSearch);
+  const [university, setUniversity] = useState(initialUniversity);
   const [concentration, setConcentration] = useState(initialConcentration);
   const [location, setLocation] = useState(initialLocation);
   const [programs, setPrograms] = useState<Program[]>([]);
@@ -37,6 +40,8 @@ export default function FindCourseLayout() {
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [showShortlist, setShowShortlist] = useState(false);
+  const [appliedProgramIds, setAppliedProgramIds] = useState<Set<string>>(new Set());
+  const [likedPrograms, setLikedPrograms] = useState<Program[]>([]);
   const { user } = useAuth();
   const [storedLead, setStoredLead] = useState<LeadForm | null>(() => {
     try {
@@ -51,9 +56,15 @@ export default function FindCourseLayout() {
     () => searchParams.get("country") || selectedCountryId || undefined,
     [searchParams, selectedCountryId],
   );
+  const likeStorageKey = useMemo(() => {
+    if (user?.id) return `${LIKED_PROGRAMS_KEY_PREFIX}:${user.id}`;
+    if (storedLead?.email) return `${LIKED_PROGRAMS_KEY_PREFIX}:${storedLead.email.toLowerCase()}`;
+    return `${LIKED_PROGRAMS_KEY_PREFIX}:guest`;
+  }, [user?.id, storedLead?.email]);
 
   useEffect(() => {
     setSearch(searchParams.get("q") || "");
+    setUniversity(searchParams.get("university") || "");
     setConcentration(searchParams.get("concentration") || "");
     setLocation(searchParams.get("location") || "");
   }, [searchParams]);
@@ -64,16 +75,60 @@ export default function FindCourseLayout() {
   }, []);
 
   useEffect(() => {
+    try {
+      const raw = localStorage.getItem(likeStorageKey);
+      if (!raw) {
+        setLikedPrograms([]);
+        return;
+      }
+      const parsed = JSON.parse(raw) as Program[];
+      setLikedPrograms(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      setLikedPrograms([]);
+    }
+  }, [likeStorageKey]);
+
+  useEffect(() => {
+    localStorage.setItem(likeStorageKey, JSON.stringify(likedPrograms));
+  }, [likeStorageKey, likedPrograms]);
+
+  useEffect(() => {
+    let mounted = true;
+    const userId = user?.id;
+    const email = user?.email || storedLead?.email;
+    if (!userId && !email) {
+      setAppliedProgramIds(new Set());
+      return;
+    }
+
+    fetchMyApplications({ userId: userId || undefined, email: email || undefined })
+      .then((rows) => {
+        if (!mounted) return;
+        const ids = new Set<string>();
+        rows.forEach((row) => ids.add(String(row.programId)));
+        setAppliedProgramIds(ids);
+      })
+      .catch(() => {
+        if (!mounted) return;
+        setAppliedProgramIds(new Set());
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, [user?.id, user?.email, storedLead?.email]);
+
+  useEffect(() => {
     setPrograms([]);
     setOffset(0);
     setHasMore(true);
-  }, [countryId, concentration, location]);
+  }, [countryId, concentration, location, university]);
 
   useEffect(() => {
     // trigger initial load
     loadPrograms(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, countryId, concentration, location]);
+  }, [search, countryId, concentration, location, university]);
 
   const loadPrograms = async (reset = false) => {
     if (loading) return;
@@ -86,6 +141,7 @@ export default function FindCourseLayout() {
         countryId,
         concentration: concentration || undefined,
         location: location || undefined,
+        university: university || undefined,
         offset: nextOffset,
         limit: PAGE_SIZE,
         token: import.meta.env.VITE_CURRENT_URL_TOKEN_REQUEST,
@@ -106,6 +162,7 @@ export default function FindCourseLayout() {
     const params = new URLSearchParams(searchParams);
     if (value) params.set("q", value);
     else params.delete("q");
+    params.delete("university");
     if (countryId) params.set("country", countryId);
     else params.delete("country");
     if (concentration) params.set("concentration", concentration);
@@ -123,6 +180,8 @@ export default function FindCourseLayout() {
     else params.delete("q");
     if (countryId) params.set("country", countryId);
     else params.delete("country");
+    if (university) params.set("university", university);
+    else params.delete("university");
     if (nextValue) params.set("concentration", nextValue);
     else params.delete("concentration");
     if (location) params.set("location", location);
@@ -138,9 +197,28 @@ export default function FindCourseLayout() {
     else params.delete("q");
     if (countryId) params.set("country", countryId);
     else params.delete("country");
+    if (university) params.set("university", university);
+    else params.delete("university");
     if (concentration) params.set("concentration", concentration);
     else params.delete("concentration");
     if (nextValue) params.set("location", nextValue);
+    else params.delete("location");
+    navigate({ pathname: "/find-course", search: params.toString() });
+  };
+
+  const handleUniversityChange = (value?: string) => {
+    const nextValue = value || "";
+    setUniversity(nextValue);
+    const params = new URLSearchParams(searchParams);
+    if (search) params.set("q", search);
+    else params.delete("q");
+    if (countryId) params.set("country", countryId);
+    else params.delete("country");
+    if (nextValue) params.set("university", nextValue);
+    else params.delete("university");
+    if (concentration) params.set("concentration", concentration);
+    else params.delete("concentration");
+    if (location) params.set("location", location);
     else params.delete("location");
     navigate({ pathname: "/find-course", search: params.toString() });
   };
@@ -174,6 +252,23 @@ export default function FindCourseLayout() {
       statement: "Applied via FindCourse (saved lead)",
       notes: `City: ${lead.city}; Course: ${lead.course}; Start: ${lead.start}`,
     });
+    setAppliedProgramIds((prev) => {
+      const next = new Set(prev);
+      next.add(programId);
+      return next;
+    });
+  };
+
+  const toggleLikeProgram = (program: Program) => {
+    const programId = getProgramId(program);
+    if (!programId) return;
+    setLikedPrograms((prev) => {
+      const exists = prev.some((item) => getProgramId(item) === programId);
+      if (exists) {
+        return prev.filter((item) => getProgramId(item) !== programId);
+      }
+      return [program, ...prev];
+    });
   };
 
   return (
@@ -196,6 +291,8 @@ export default function FindCourseLayout() {
         <aside className="sidebar">
           <FiltersSidebar
             countryId={countryId}
+            selectedUniversity={university || undefined}
+            onSelectUniversity={handleUniversityChange}
             selectedConcentration={concentration || undefined}
             onSelectConcentration={handleConcentrationChange}
             selectedLocation={location || undefined}
@@ -217,7 +314,10 @@ export default function FindCourseLayout() {
               <ProgramCard
                 key={p._id}
                 program={p}
+                applied={appliedProgramIds.has(String((p as any).id ?? p._id ?? ""))}
+                liked={likedPrograms.some((item) => String((item as any).id ?? item._id ?? "") === String((p as any).id ?? p._id ?? ""))}
                 onApply={setSelectedProgram}
+                onToggleLike={toggleLikeProgram}
               />
             ))}
           </div>
@@ -232,10 +332,12 @@ export default function FindCourseLayout() {
       <ProgramDetailModal
         open={Boolean(selectedProgram)}
         program={selectedProgram}
+        applied={appliedProgramIds.has(getProgramId(selectedProgram) || "")}
         onClose={() => setSelectedProgram(null)}
         onApply={(program) => {
           if (!program) return;
           const programId = getProgramId(program);
+          if (!programId) return;
           if (user) {
             const resolvedCountryId = getCountryId(program);
             submitApplication({
@@ -246,7 +348,14 @@ export default function FindCourseLayout() {
               countryId: resolvedCountryId,
               statement: "Applied via FindCourse",
             })
-              .then(() => setShowInfo(true))
+              .then(() => {
+                setAppliedProgramIds((prev) => {
+                  const next = new Set(prev);
+                  next.add(programId);
+                  return next;
+                });
+                setShowInfo(true);
+              })
               .catch((err) => setError(err.message));
           } else {
             // If we already have a saved lead, reuse it and skip modal

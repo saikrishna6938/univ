@@ -495,9 +495,10 @@
 
 .admin-task-aging__legend-row {
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto auto auto;
   align-items: center;
-  gap: 8px;
+  justify-content: start;
+  gap: 6px;
 }
 
 .admin-task-aging__dot {

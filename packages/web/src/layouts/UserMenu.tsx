@@ -8,6 +8,7 @@ import ListItemText from "@mui/material/ListItemText";
 import Logout from "@mui/icons-material/Logout";
 import Settings from "@mui/icons-material/Settings";
 import AccountCircle from "@mui/icons-material/AccountCircle";
+import DashboardRounded from "@mui/icons-material/DashboardRounded";
 import Dialog from "@mui/material/Dialog";
 import DialogTitle from "@mui/material/DialogTitle";
 import DialogContent from "@mui/material/DialogContent";
@@ -16,9 +17,11 @@ import TextField from "@mui/material/TextField";
 import Button from "@mui/material/Button";
 import Stack from "@mui/material/Stack";
 import { useAuth } from "./AuthContext";
+import { useNavigate } from "react-router-dom";
 
 export default function UserMenu() {
   const { user, logout, setUser } = useAuth();
+  const navigate = useNavigate();
   const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const [profileOpen, setProfileOpen] = useState(false);
   const [draft, setDraft] = useState(user);
@@ -60,6 +63,17 @@ export default function UserMenu() {
             primary={user?.name || "User"}
             secondary={user?.email || user?.phone}
           />
+        </MenuItem>
+        <MenuItem
+          onClick={() => {
+            navigate("/student/dashboard");
+            setAnchorEl(null);
+          }}
+        >
+          <ListItemIcon>
+            <DashboardRounded fontSize="small" />
+          </ListItemIcon>
+          <ListItemText primary="My Dashboard" />
         </MenuItem>
         <MenuItem
           onClick={() => {

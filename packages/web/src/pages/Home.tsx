@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import HomeBanner from "../components/HomeBanner";
 import FeaturedUniversities from "../components/FeaturedUniversities";
 import GuidanceHome from "../components/GuidanceHome";
@@ -7,9 +8,20 @@ import HowWeWork from "../components/HowWeWork";
 import MeetCounsellors from "../components/MeetCounsellors";
 import EventsTimeline from "../components/EventsTimeline";
 import ShortlistModal from "../components/ShortlistModal";
+import { useAuth } from "../layouts/AuthContext";
 
 export default function Home() {
   const [shortlistOpen, setShortlistOpen] = useState(false);
+  const { user } = useAuth();
+  const navigate = useNavigate();
+
+  function handleShortlistNow() {
+    if (user) {
+      navigate("/find-course");
+      return;
+    }
+    setShortlistOpen(true);
+  }
 
   return (
     <div className="app">
@@ -26,7 +38,7 @@ export default function Home() {
       >
         <button
           type="button"
-          onClick={() => setShortlistOpen(true)}
+          onClick={handleShortlistNow}
           style={{
             background: "#f97316",
             color: "#fff",

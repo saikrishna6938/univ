@@ -23,8 +23,8 @@ export default function FeaturedUniversities() {
   return (
     <section className="featured-block">
       <div className="featured-header">
-        <h2>Apply to 500+ Universities</h2>
-        <p>Get Exclusive Discounts on Application & VISA Fees</p>
+        <h2>Featured Universities and Programs</h2>
+        <p>Compare application fees, available offers, and start your application in one place.</p>
       </div>
 
       <div className="featured-table">

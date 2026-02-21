@@ -1,4 +1,7 @@
 import GroupRounded from '@mui/icons-material/GroupRounded';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import EditOutlined from '@mui/icons-material/EditOutlined';
+import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined';
 import {
   Alert,
   Box,
@@ -9,25 +12,25 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
+  IconButton,
   InputLabel,
   MenuItem,
   Select,
   Skeleton,
   Stack,
-  Table,
-  TableBody,
   TableCell,
-  TableContainer,
-  TableHead,
   TableRow,
+  TablePagination,
   TableSortLabel,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material';
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import type { AdminListUser, Country, LeadConversation, LeadConversationStatus } from '../../lib/api';
 import { bulkCreateAdminUsers, createAdminUser, deleteAdminUser, fetchAdminUsers, fetchCountries, fetchLeadConversations, updateAdminUser, upsertLeadConversation } from '../../lib/api';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
+import AdminDataTable from '../../components/admin/AdminDataTable';
 import './admin.css';
 
 type SortField =
@@ -103,6 +106,7 @@ function parseCsvLine(line: string): string[] {
 
 export default function AdminUsersPage() {
   const { adminUser } = useAdminAuth();
+  const isEmployeeSession = adminUser?.role === 'employee';
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [users, setUsers] = useState<AdminListUser[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
@@ -113,6 +117,9 @@ export default function AdminUsersPage() {
   const [uploadingUsers, setUploadingUsers] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ field: 'createdAt', direction: 'desc' });
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [searchText, setSearchText] = useState('');
 
   const [editingUser, setEditingUser] = useState<AdminListUser | null>(null);
   const [editingAccountUser, setEditingAccountUser] = useState<AdminListUser | null>(null);
@@ -248,6 +255,27 @@ export default function AdminUsersPage() {
     return sortedUsers;
   }, [adminUser?.role, sortedUsers]);
 
+  const filteredUsers = useMemo(() => {
+    const query = searchText.trim().toLowerCase();
+    if (!query) return visibleUsers;
+    return visibleUsers.filter((user) => {
+      const name = String(user.name || '').toLowerCase();
+      const email = String(user.email || '').toLowerCase();
+      const phone = String(user.phone || '').toLowerCase();
+      return name.includes(query) || email.includes(query) || phone.includes(query);
+    });
+  }, [searchText, visibleUsers]);
+
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(filteredUsers.length / rowsPerPage) - 1);
+    if (page > maxPage) setPage(maxPage);
+  }, [filteredUsers.length, page, rowsPerPage]);
+
+  const pagedUsers = useMemo(() => {
+    const start = page * rowsPerPage;
+    return filteredUsers.slice(start, start + rowsPerPage);
+  }, [filteredUsers, page, rowsPerPage]);
+
   function renderSortHeader(field: SortField, label: string) {
     return (
       <TableSortLabel
@@ -327,8 +355,9 @@ export default function AdminUsersPage() {
         email: newUserForm.email.trim(),
         phone: newUserForm.phone.trim() || undefined,
         city: newUserForm.city.trim() || undefined,
-        roles: newUserForm.roles,
-        countryIds: newUserForm.countryIds,
+        role: isEmployeeSession ? 'student' : undefined,
+        roles: isEmployeeSession ? [] : newUserForm.roles,
+        countryIds: isEmployeeSession ? [] : newUserForm.countryIds,
         password: newUserForm.password || undefined
       });
 
@@ -460,7 +489,13 @@ export default function AdminUsersPage() {
             Users
           </Typography>
           <Stack direction="row" spacing={1}>
-            <Chip label={loading ? 'Loading...' : `${visibleUsers.length} users`} color="info" variant="outlined" />
+            <TextField
+              size="small"
+              placeholder="Filter by name, email, or phone"
+              value={searchText}
+              onChange={(event) => setSearchText(event.target.value)}
+            />
+            <Chip label={loading ? 'Loading...' : `${filteredUsers.length} users`} color="info" variant="outlined" />
             {adminUser?.role === 'admin' || adminUser?.role === 'manager' ? (
               <>
                 <input
@@ -492,80 +527,124 @@ export default function AdminUsersPage() {
               CSV columns: `name,email,phone`. Upload defaults are auto-applied: city=`Hyderabad`, role=`uploaded`, country_ids=`null`, password=`Student@123`.
             </Typography>
           ) : null}
-          <TableContainer sx={{ maxHeight: 700 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>{renderSortHeader('name', 'Name')}</TableCell>
-                  <TableCell>{renderSortHeader('email', 'Email')}</TableCell>
-                  <TableCell>{renderSortHeader('phone', 'Phone')}</TableCell>
-                  <TableCell>{renderSortHeader('city', 'City')}</TableCell>
-                  <TableCell>{renderSortHeader('role', 'Roles')}</TableCell>
-                  <TableCell>{renderSortHeader('lookingFor', 'Looking For')}</TableCell>
-                  <TableCell>{renderSortHeader('conversationStatus', 'Status')}</TableCell>
-                  <TableCell>{renderSortHeader('reminderAt', 'Reminder')}</TableCell>
-                  <TableCell>{renderSortHeader('createdAt', 'Created')}</TableCell>
-                  <TableCell>{renderSortHeader('lastLoginAt', 'Last Login')}</TableCell>
-                  <TableCell align="right">Action</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading
-                  ? Array.from({ length: 10 }).map((_, idx) => (
-                      <TableRow key={`user-skeleton-${idx}`}>
-                        <TableCell colSpan={11}>
-                          <Skeleton height={30} />
+          <AdminDataTable
+            tableMinWidth={1680}
+            tableLayout="auto"
+            headerSx={{
+              '& .MuiTableCell-root': {
+                maxWidth: 150,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }
+            }}
+            bodySx={{
+              '& .MuiTableCell-root': {
+                maxWidth: 150,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }
+            }}
+            maxBodyHeight={{
+              xs: 'calc(100vh - 410px)',
+              md: 'calc(100vh - 380px)'
+            }}
+            minBodyHeight={{
+              xs: 'calc(100vh - 490px)',
+              md: 'calc(100vh - 440px)'
+            }}
+            headerRow={
+              <TableRow>
+                <TableCell>{renderSortHeader('name', 'Name')}</TableCell>
+                <TableCell sx={{ width: 'auto' }}>{renderSortHeader('email', 'Email')}</TableCell>
+                <TableCell>{renderSortHeader('phone', 'Phone')}</TableCell>
+                <TableCell>{renderSortHeader('city', 'City')}</TableCell>
+                <TableCell>{renderSortHeader('role', 'Roles')}</TableCell>
+                <TableCell>{renderSortHeader('lookingFor', 'Looking For')}</TableCell>
+                <TableCell>{renderSortHeader('conversationStatus', 'Status')}</TableCell>
+                <TableCell>{renderSortHeader('reminderAt', 'Reminder')}</TableCell>
+                <TableCell>{renderSortHeader('createdAt', 'Created')}</TableCell>
+                <TableCell>{renderSortHeader('lastLoginAt', 'Last Login')}</TableCell>
+                <TableCell align="right">Action</TableCell>
+              </TableRow>
+            }
+            bodyRows={
+              loading
+                ? Array.from({ length: 10 }).map((_, idx) => (
+                    <TableRow key={`user-skeleton-${idx}`}>
+                      <TableCell colSpan={11}>
+                        <Skeleton height={30} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : pagedUsers.map((user) => {
+                    const conversation = conversationsByUserId[user.id];
+                    return (
+                      <TableRow hover key={user.id}>
+                        <TableCell>
+                          <Typography variant="body2" fontWeight={700}>
+                            {user.name}
+                          </Typography>
+                        </TableCell>
+                        <TableCell sx={{ width: 'auto' }}>{user.email || '-'}</TableCell>
+                        <TableCell>{user.phone || '-'}</TableCell>
+                        <TableCell>{user.city || '-'}</TableCell>
+                        <TableCell>{user.roles && user.roles.length ? user.roles.join(', ') : user.role}</TableCell>
+                        <TableCell>{conversation?.lookingFor || '-'}</TableCell>
+                        <TableCell>
+                          <Chip
+                            size="small"
+                            label={conversation?.conversationStatus || 'new'}
+                            variant="outlined"
+                            color={conversation?.conversationStatus === 'interested' ? 'success' : 'default'}
+                          />
+                        </TableCell>
+                        <TableCell>{conversation?.reminderAt ? new Date(conversation.reminderAt).toLocaleString() : '-'}</TableCell>
+                        <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
+                        <TableCell>{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</TableCell>
+                        <TableCell align="right">
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="Manage lead conversation">
+                              <IconButton size="small" color="primary" onClick={() => openConversationEditor(user)}>
+                                <ManageAccountsOutlined fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
+                              <>
+                                <Tooltip title="Edit user">
+                                  <IconButton size="small" color="primary" onClick={() => openUserEditor(user)}>
+                                    <EditOutlined fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Delete user">
+                                  <IconButton size="small" color="error" onClick={() => removeUser(user)}>
+                                    <DeleteOutlineRounded fontSize="small" />
+                                  </IconButton>
+                                </Tooltip>
+                              </>
+                            ) : null}
+                          </Stack>
                         </TableCell>
                       </TableRow>
-                    ))
-                  : visibleUsers.map((user) => {
-                      const conversation = conversationsByUserId[user.id];
-                      return (
-                        <TableRow hover key={user.id}>
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={700}>
-                              {user.name}
-                            </Typography>
-                          </TableCell>
-                          <TableCell>{user.email || '-'}</TableCell>
-                          <TableCell>{user.phone || '-'}</TableCell>
-                          <TableCell>{user.city || '-'}</TableCell>
-                          <TableCell>{user.roles && user.roles.length ? user.roles.join(', ') : user.role}</TableCell>
-                          <TableCell>{conversation?.lookingFor || '-'}</TableCell>
-                          <TableCell>
-                            <Chip
-                              size="small"
-                              label={conversation?.conversationStatus || 'new'}
-                              variant="outlined"
-                              color={conversation?.conversationStatus === 'interested' ? 'success' : 'default'}
-                            />
-                          </TableCell>
-                          <TableCell>{conversation?.reminderAt ? new Date(conversation.reminderAt).toLocaleString() : '-'}</TableCell>
-                          <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
-                          <TableCell>{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</TableCell>
-                          <TableCell align="right">
-                            <Stack direction="row" spacing={1} justifyContent="flex-end">
-                              <Button size="small" variant="outlined" onClick={() => openConversationEditor(user)}>
-                                Manage
-                              </Button>
-                              {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
-                                <>
-                                  <Button size="small" variant="outlined" onClick={() => openUserEditor(user)}>
-                                    Edit
-                                  </Button>
-                                  <Button size="small" color="error" variant="outlined" onClick={() => removeUser(user)}>
-                                    Delete
-                                  </Button>
-                                </>
-                              ) : null}
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-              </TableBody>
-            </Table>
-          </TableContainer>
+                    );
+                  })
+            }
+          />
+          {!loading ? (
+            <TablePagination
+              component="div"
+              count={filteredUsers.length}
+              page={page}
+              onPageChange={(_event, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(event) => {
+                setRowsPerPage(parseInt(event.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50]}
+            />
+          ) : null}
         </Box>
       </Box>
 
@@ -686,61 +765,69 @@ export default function AdminUsersPage() {
               fullWidth
             />
             <FormControl fullWidth>
-              <InputLabel id="new-user-role-label">Roles</InputLabel>
-              <Select
-                labelId="new-user-role-label"
-                label="Roles"
-                multiple
-                value={newUserForm.roles}
-                renderValue={(selected) => (selected as string[]).join(', ')}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  const roles = Array.isArray(value) ? value : String(value).split(',');
-                  const normalized = roles
-                    .map((role) => String(role).trim().toLowerCase())
-                    .filter((role): role is 'admin' | 'manager' | 'employee' =>
-                      ['admin', 'manager', 'employee'].includes(role)
+              {isEmployeeSession ? (
+                <TextField label="Role" value="student" fullWidth InputProps={{ readOnly: true }} />
+              ) : (
+                <>
+                  <InputLabel id="new-user-role-label">Roles</InputLabel>
+                  <Select
+                    labelId="new-user-role-label"
+                    label="Roles"
+                    multiple
+                    value={newUserForm.roles}
+                    renderValue={(selected) => (selected as string[]).join(', ')}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      const roles = Array.isArray(value) ? value : String(value).split(',');
+                      const normalized = roles
+                        .map((role) => String(role).trim().toLowerCase())
+                        .filter((role): role is 'admin' | 'manager' | 'employee' =>
+                          ['admin', 'manager', 'employee'].includes(role)
+                        );
+                      setNewUserForm((prev) => ({
+                        ...prev,
+                        roles: [...new Set(normalized)]
+                      }));
+                    }}
+                  >
+                    <MenuItem value="employee">Employee</MenuItem>
+                    <MenuItem value="manager">Manager</MenuItem>
+                    <MenuItem value="admin">Admin</MenuItem>
+                  </Select>
+                </>
+              )}
+            </FormControl>
+            {!isEmployeeSession ? (
+              <FormControl fullWidth>
+                <InputLabel id="new-user-country-label">Countries</InputLabel>
+                <Select
+                  labelId="new-user-country-label"
+                  label="Countries"
+                  multiple
+                  value={newUserForm.countryIds}
+                  renderValue={(selected) =>
+                    (selected as number[])
+                      .map((id) => countries.find((country) => Number(country.id ?? country._id ?? 0) === id)?.name || id)
+                      .join(', ')
+                  }
+                  onChange={(event) =>
+                    setNewUserForm((prev) => ({
+                      ...prev,
+                      countryIds: (event.target.value as number[]).map((id) => Number(id))
+                    }))
+                  }
+                >
+                  {countries.map((country) => {
+                    const id = Number(country.id ?? country._id ?? 0);
+                    return (
+                      <MenuItem key={id} value={id}>
+                        {country.name}
+                      </MenuItem>
                     );
-                  setNewUserForm((prev) => ({
-                    ...prev,
-                    roles: [...new Set(normalized)]
-                  }));
-                }}
-              >
-                <MenuItem value="employee">Employee</MenuItem>
-                <MenuItem value="manager">Manager</MenuItem>
-                <MenuItem value="admin">Admin</MenuItem>
-              </Select>
-            </FormControl>
-            <FormControl fullWidth>
-              <InputLabel id="new-user-country-label">Countries</InputLabel>
-              <Select
-                labelId="new-user-country-label"
-                label="Countries"
-                multiple
-                value={newUserForm.countryIds}
-                renderValue={(selected) =>
-                  (selected as number[])
-                    .map((id) => countries.find((country) => Number(country.id ?? country._id ?? 0) === id)?.name || id)
-                    .join(', ')
-                }
-                onChange={(event) =>
-                  setNewUserForm((prev) => ({
-                    ...prev,
-                    countryIds: (event.target.value as number[]).map((id) => Number(id))
-                  }))
-                }
-              >
-                {countries.map((country) => {
-                  const id = Number(country.id ?? country._id ?? 0);
-                  return (
-                    <MenuItem key={id} value={id}>
-                      {country.name}
-                    </MenuItem>
-                  );
-                })}
-              </Select>
-            </FormControl>
+                  })}
+                </Select>
+              </FormControl>
+            ) : null}
             <TextField
               label="Password"
               type="password"

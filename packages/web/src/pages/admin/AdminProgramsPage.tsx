@@ -13,11 +13,9 @@ import {
   Select,
   Skeleton,
   Stack,
-  Table,
-  TableBody,
+  IconButton,
   TableCell,
-  TableContainer,
-  TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Tooltip,
@@ -25,7 +23,8 @@ import {
 } from '@mui/material';
 import { useEffect, useState } from 'react';
 import type { Country, Program } from '../../lib/api';
-import { fetchCountries, searchPrograms, updateProgram } from '../../lib/api';
+import { fetchCountries, fetchProgramsPage, updateProgram } from '../../lib/api';
+import AdminDataTable from '../../components/admin/AdminDataTable';
 import './admin.css';
 
 type ProgramEditor = {
@@ -67,6 +66,7 @@ function makeEditor(program: Program): ProgramEditor {
 export default function AdminProgramsPage() {
   const [countries, setCountries] = useState<Country[]>([]);
   const [programs, setPrograms] = useState<Program[]>([]);
+  const [totalPrograms, setTotalPrograms] = useState(0);
   const [loadingCountries, setLoadingCountries] = useState(true);
   const [loadingPrograms, setLoadingPrograms] = useState(true);
   const [countryFilter, setCountryFilter] = useState('all');
@@ -75,6 +75,8 @@ export default function AdminProgramsPage() {
   const [editorData, setEditorData] = useState<ProgramEditor | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(50);
 
   useEffect(() => {
     let mounted = true;
@@ -99,17 +101,24 @@ export default function AdminProgramsPage() {
   }, []);
 
   useEffect(() => {
+    setPage(0);
+  }, [countryFilter, search]);
+
+  useEffect(() => {
     let mounted = true;
 
     async function loadPrograms() {
       setLoadingPrograms(true);
       try {
-        const rows = await searchPrograms({
-          country: countryFilter === 'all' ? undefined : countryFilter,
-          search: search.trim() || undefined
+        const data = await fetchProgramsPage({
+          countryId: countryFilter === 'all' ? undefined : countryFilter,
+          search: search.trim() || undefined,
+          offset: page * rowsPerPage,
+          limit: rowsPerPage
         });
         if (!mounted) return;
-        setPrograms(rows);
+        setPrograms(data.items);
+        setTotalPrograms(data.total);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : 'Failed to load programs');
@@ -122,7 +131,7 @@ export default function AdminProgramsPage() {
     return () => {
       mounted = false;
     };
-  }, [countryFilter, search]);
+  }, [countryFilter, search, page, rowsPerPage]);
 
   function openEditor(program: Program) {
     setEditorData(makeEditor(program));
@@ -200,46 +209,67 @@ export default function AdminProgramsPage() {
         </Box>
 
         <Box className="admin-panel__body">
-          <TableContainer sx={{ maxHeight: 620 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell>Program</TableCell>
-                  <TableCell>University</TableCell>
-                  <TableCell>Country</TableCell>
-                  <TableCell>Tuition / year</TableCell>
-                  <TableCell>Intakes</TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loadingPrograms
-                  ? Array.from({ length: 7 }).map((_, index) => (
-                      <TableRow key={`skeleton-${index}`}>
-                        <TableCell colSpan={6}>
-                          <Skeleton height={30} />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  : programs.map((program) => (
-                      <TableRow key={getProgramId(program)} hover>
-                        <TableCell>{program.programName}</TableCell>
-                        <TableCell>{program.universityName}</TableCell>
-                        <TableCell>{program.country?.name ?? '-'}</TableCell>
-                        <TableCell>{program.tuitionFeePerYear ?? '-'}</TableCell>
-                        <TableCell>{program.intakes ?? '-'}</TableCell>
-                        <TableCell align="right">
-                          <Tooltip title="Edit program">
-                            <Button size="small" startIcon={<EditRounded />} onClick={() => openEditor(program)}>
-                              Edit
-                            </Button>
-                          </Tooltip>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <AdminDataTable
+            tableMinWidth={980}
+            maxBodyHeight={{
+              xs: 'calc(100vh - 360px)',
+              md: 'calc(100vh - 330px)'
+            }}
+            minBodyHeight={{
+              xs: 'calc(100vh - 460px)',
+              md: 'calc(100vh - 410px)'
+            }}
+            headerRow={
+              <TableRow>
+                <TableCell>Program</TableCell>
+                <TableCell>University</TableCell>
+                <TableCell>Country</TableCell>
+                <TableCell>Tuition / year</TableCell>
+                <TableCell>Intakes</TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            }
+            bodyRows={
+              loadingPrograms
+                ? Array.from({ length: 7 }).map((_, index) => (
+                    <TableRow key={`skeleton-${index}`}>
+                      <TableCell colSpan={6}>
+                        <Skeleton height={30} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : programs.map((program) => (
+                    <TableRow key={getProgramId(program)} hover>
+                      <TableCell>{program.programName}</TableCell>
+                      <TableCell>{program.universityName}</TableCell>
+                      <TableCell>{program.country?.name ?? '-'}</TableCell>
+                      <TableCell>{program.tuitionFeePerYear ?? '-'}</TableCell>
+                      <TableCell>{program.intakes ?? '-'}</TableCell>
+                      <TableCell align="right">
+                        <Tooltip title="Edit program">
+                          <IconButton size="small" onClick={() => openEditor(program)}>
+                            <EditRounded fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </TableCell>
+                    </TableRow>
+                  ))
+            }
+          />
+          {!loadingPrograms ? (
+            <TablePagination
+              component="div"
+              count={totalPrograms}
+              page={page}
+              onPageChange={(_, nextPage) => setPage(nextPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(event) => {
+                setRowsPerPage(parseInt(event.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[50]}
+            />
+          ) : null}
         </Box>
       </Box>
 

@@ -17,6 +17,7 @@ import Box from "@mui/material/Box";
 import Divider from "@mui/material/Divider";
 import InputAdornment from "@mui/material/InputAdornment";
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 export type FormState = {
   name: string;
@@ -46,6 +47,7 @@ const initialForm: FormState = {
 };
 
 export default function ShortlistModal({ open, onClose, onSubmitted, initialValues }: Props) {
+  const navigate = useNavigate();
   const [form, setForm] = useState<FormState>({ ...initialForm, ...initialValues });
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -145,10 +147,10 @@ export default function ShortlistModal({ open, onClose, onSubmitted, initialValu
               }}
             >
               <Typography fontWeight={800} fontSize={20} color="#f97316">
-                Meet Our Study Abroad Experts
+                Connect With Gradwalk Experts
               </Typography>
               <Typography color="text.secondary" fontSize={14} sx={{ mb: 1 }}>
-                Get Exclusive Discounts on Application & VISA Fees
+                Get personalized support for program selection, applications, and visa planning.
               </Typography>
               <Box
                 sx={{
@@ -159,10 +161,10 @@ export default function ShortlistModal({ open, onClose, onSubmitted, initialValu
                 }}
               />
               <Typography fontWeight={700} mt={2} mb={1} fontSize={15}>
-                Apply to 1800+ Study Abroad Universities
+                Build a smarter shortlist with expert guidance
               </Typography>
               <Typography color="text.secondary" fontSize={13} mb={1}>
-                Get up to <strong>80% discount</strong> on Visa Application fees
+                Compare universities, understand requirements, and move ahead with confidence.
               </Typography>
               <Box
                 sx={{
@@ -205,10 +207,10 @@ export default function ShortlistModal({ open, onClose, onSubmitted, initialValu
               </Box>
               <Stack direction="row" spacing={1} alignItems="center">
                 <Typography fontWeight={700} color="#2563eb" fontSize={13}>
-                  Pay 0 Visa Fees
+                  End-to-end support
                 </Typography>
                 <Typography fontWeight={700} color="#f97316" fontSize={13}>
-                  Application Fees
+                  by dedicated counsellors
                 </Typography>
               </Stack>
             </Box>
@@ -388,7 +390,15 @@ export default function ShortlistModal({ open, onClose, onSubmitted, initialValu
               </Stack>
 
               <Stack direction="row" justifyContent="space-between" alignItems="center" mt={2} gap={2}>
-                <Typography fontWeight={700} color="#f97316">
+                <Typography
+                  fontWeight={700}
+                  color="#f97316"
+                  sx={{ cursor: "pointer", textDecoration: "underline" }}
+                  onClick={() => {
+                    onClose();
+                    navigate("/login");
+                  }}
+                >
                   Already Registered? Click Here To Login.
                 </Typography>
                 <Button type="submit" variant="contained" sx={{ background: "#f97316", px: 3, py: 1 }}>

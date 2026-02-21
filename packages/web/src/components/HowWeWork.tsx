@@ -3,14 +3,14 @@ import "./HowWeWork.css";
 import ShortlistModal from "./ShortlistModal";
 
 const steps = [
-  { title: "Register Yourself", body: "Start by registering with us! Your first step towards a successful academic future begins here." },
-  { title: "Career Counselling", body: "Talk to our counsellors and know which country, course and college is better for you." },
-  { title: "Entrance Test", body: "Identify the best entrance test based on country and preparation tips." },
-  { title: "University Shortlist", body: "Our counsellors will help you shortlist best college as per the score." },
-  { title: "Application Prep", body: "We help you prepare strong applications and essays tailored to each university." },
-  { title: "Scholarships & Aid", body: "Explore scholarships, assistantships, and aid options suited to your profile." },
-  { title: "Visa & Interview", body: "Guidance on visa documentation and mock interviews to boost approval chances." },
-  { title: "Pre-Departure", body: "Get checklists, housing tips, and orientation support before you fly." },
+  { title: "Create Your Profile", body: "Tell us about your academics, test scores, and preferences so we can personalize your roadmap." },
+  { title: "Counselling Session", body: "Review your profile with an expert and define your target countries, programs, and intake timeline." },
+  { title: "Test Planning", body: "Get guidance on the exams you need, ideal score targets, and a realistic preparation plan." },
+  { title: "Program Shortlisting", body: "Build a balanced shortlist of ambitious, moderate, and safe university options." },
+  { title: "Application Preparation", body: "Prepare SOPs, LORs, CV, and required documents with structured review support." },
+  { title: "Funding Strategy", body: "Plan tuition and living costs while evaluating scholarships, loans, and assistantship options." },
+  { title: "Visa Readiness", body: "Complete visa documentation and interview preparation with destination-specific guidance." },
+  { title: "Pre-Departure Support", body: "Get final checklists for accommodation, travel, and onboarding before classes begin." },
 ];
 
 export default function HowWeWork() {
@@ -20,7 +20,7 @@ export default function HowWeWork() {
     <>
       <section className="howwork">
         <div className="howwork__header">
-          <h2>How Do We Work</h2>
+          <h2>How Gradwalk Works</h2>
         </div>
         <div className="howwork__timeline">
           {steps.map((s, idx) => (
@@ -33,7 +33,7 @@ export default function HowWeWork() {
         </div>
         <div className="howwork__actions">
           <button className="howwork__btn primary" onClick={() => setOpen(true)}>
-            Get Information
+            Get Details
           </button>
           <button className="howwork__btn secondary" onClick={() => setOpen(true)}>
             Book Appointment

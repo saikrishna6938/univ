@@ -195,6 +195,60 @@ CREATE TABLE IF NOT EXISTS events (
   INDEX idx_events_program (program)
 );
 
+CREATE TABLE IF NOT EXISTS scholarships (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  links TEXT NULL,
+  duration VARCHAR(120) NULL,
+  deadline DATE NULL,
+  description TEXT NULL,
+  country_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_scholarships_country FOREIGN KEY (country_id) REFERENCES countries(id) ON DELETE CASCADE,
+  INDEX idx_scholarships_country (country_id),
+  INDEX idx_scholarships_deadline (deadline)
+);
+
+CREATE TABLE IF NOT EXISTS study_guide_topics (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL UNIQUE,
+  description TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS study_guides (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  topic_id INT NOT NULL,
+  country_id INT NOT NULL,
+  title VARCHAR(255) NOT NULL,
+  summary TEXT NULL,
+  content LONGTEXT NULL,
+  links TEXT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_study_guides_topic FOREIGN KEY (topic_id) REFERENCES study_guide_topics(id) ON DELETE CASCADE,
+  CONSTRAINT fk_study_guides_country FOREIGN KEY (country_id) REFERENCES countries(id) ON DELETE CASCADE,
+  INDEX idx_study_guides_topic (topic_id),
+  INDEX idx_study_guides_country (country_id)
+);
+
+CREATE TABLE IF NOT EXISTS exams (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  name VARCHAR(255) NOT NULL,
+  links TEXT NULL,
+  duration VARCHAR(120) NULL,
+  exam_date DATE NULL,
+  description TEXT NULL,
+  country_id INT NOT NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_exams_country FOREIGN KEY (country_id) REFERENCES countries(id) ON DELETE CASCADE,
+  INDEX idx_exams_country (country_id),
+  INDEX idx_exams_exam_date (exam_date)
+);
+
 CREATE TABLE IF NOT EXISTS subscribers (
   id INT AUTO_INCREMENT PRIMARY KEY,
   email VARCHAR(255) NOT NULL UNIQUE,
@@ -203,3 +257,174 @@ CREATE TABLE IF NOT EXISTS subscribers (
   confirmed_at DATETIME NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS student_profiles (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL UNIQUE,
+  dob DATE NULL,
+  gender VARCHAR(20) NULL,
+  highest_qualification VARCHAR(120) NULL,
+  preferred_intake VARCHAR(120) NULL,
+  bio TEXT NULL,
+  profile_picture_url VARCHAR(512) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_student_profile_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE TABLE IF NOT EXISTS student_documents (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  user_id INT NOT NULL,
+  document_name VARCHAR(255) NOT NULL,
+  original_file_name VARCHAR(255) NULL,
+  file_url VARCHAR(512) NOT NULL,
+  mime_type VARCHAR(120) NULL,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  CONSTRAINT fk_student_document_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  INDEX idx_student_documents_user_created (user_id, created_at)
+);
+
+-- ---------------------------
+-- Sample Study Guide Seed Data
+-- ---------------------------
+INSERT INTO study_guide_topics (name, description)
+VALUES
+  ('Visa & Documentation', 'Visa process, required documents and verification tips by country.'),
+  ('Cost & Financial Planning', 'Tuition, living cost and budgeting strategy for international students.'),
+  ('Accommodation & Settlement', 'Housing, transport and first 30 days checklist after arrival.'),
+  ('Career & Work Rights', 'Part-time work rules, internships and post-study opportunities.')
+ON DUPLICATE KEY UPDATE
+  description = VALUES(description);
+
+INSERT INTO study_guides (topic_id, country_id, title, summary, content, links)
+SELECT t.id, c.id,
+  'Canada Student Visa (SDS) Checklist',
+  'Step-by-step SDS filing checklist, documents and timelines.',
+  'Prepare a valid passport, LOA, fee receipts, GIC proof and medical exam details. Keep all academic transcripts and language test scores ready before applying. Track processing weekly and avoid last-minute uploads.',
+  'https://www.canada.ca/en/immigration-refugees-citizenship/services/study-canada/study-permit.html'
+FROM study_guide_topics t
+JOIN countries c ON c.iso_code = 'CA'
+WHERE t.name = 'Visa & Documentation'
+  AND NOT EXISTS (
+    SELECT 1 FROM study_guides sg
+    WHERE sg.topic_id = t.id AND sg.country_id = c.id
+      AND sg.title = 'Canada Student Visa (SDS) Checklist'
+  );
+
+INSERT INTO study_guides (topic_id, country_id, title, summary, content, links)
+SELECT t.id, c.id,
+  'USA Budget Planning for Master Students',
+  'Estimate tuition, living costs and emergency funds for the first year.',
+  'Create a 12 month budget split into tuition, rent, insurance, food and local commute. Keep a reserve for books, deposits and emergency medical expenses. Review assistantship options by university and intake.',
+  'https://educationusa.state.gov'
+FROM study_guide_topics t
+JOIN countries c ON c.iso_code = 'US'
+WHERE t.name = 'Cost & Financial Planning'
+  AND NOT EXISTS (
+    SELECT 1 FROM study_guides sg
+    WHERE sg.topic_id = t.id AND sg.country_id = c.id
+      AND sg.title = 'USA Budget Planning for Master Students'
+  );
+
+INSERT INTO study_guides (topic_id, country_id, title, summary, content, links)
+SELECT t.id, c.id,
+  'UK Arrival and Accommodation Starter Guide',
+  'How to shortlist housing and settle in your first month in the UK.',
+  'Book temporary stay for at least 10 days, compare student halls versus private rentals, and verify council tax exemptions. Open a UK bank account early and register for GP services after arrival.',
+  'https://www.gov.uk/student-visa'
+FROM study_guide_topics t
+JOIN countries c ON c.iso_code = 'GB'
+WHERE t.name = 'Accommodation & Settlement'
+  AND NOT EXISTS (
+    SELECT 1 FROM study_guides sg
+    WHERE sg.topic_id = t.id AND sg.country_id = c.id
+      AND sg.title = 'UK Arrival and Accommodation Starter Guide'
+  );
+
+INSERT INTO study_guides (topic_id, country_id, title, summary, content, links)
+SELECT t.id, c.id,
+  'Australia Work Rights for International Students',
+  'Understand work hour rules, payroll basics and job readiness.',
+  'Know your visa work-hour limits per fortnight, apply for TFN early, and use university career portals for part-time jobs. Keep attendance and academic progress consistent to avoid visa compliance issues.',
+  'https://immi.homeaffairs.gov.au/visas/getting-a-visa/visa-listing/student-500'
+FROM study_guide_topics t
+JOIN countries c ON c.iso_code = 'AU'
+WHERE t.name = 'Career & Work Rights'
+  AND NOT EXISTS (
+    SELECT 1 FROM study_guides sg
+    WHERE sg.topic_id = t.id AND sg.country_id = c.id
+      AND sg.title = 'Australia Work Rights for International Students'
+  );
+
+INSERT INTO study_guides (topic_id, country_id, title, summary, content, links)
+SELECT t.id, c.id,
+  'Germany Visa File Preparation Guide',
+  'Blocked account, insurance and admission package checklist.',
+  'Prepare your blocked account proof, health insurance confirmation, APS where applicable, and university admission documents. Keep translated and notarized copies ready before appointment booking.',
+  'https://www.make-it-in-germany.com/en/study-vocational-training/studies-in-germany/visa'
+FROM study_guide_topics t
+JOIN countries c ON c.iso_code = 'DE'
+WHERE t.name = 'Visa & Documentation'
+  AND NOT EXISTS (
+    SELECT 1 FROM study_guides sg
+    WHERE sg.topic_id = t.id AND sg.country_id = c.id
+      AND sg.title = 'Germany Visa File Preparation Guide'
+  );
+
+-- Sample Exams data (country based)
+INSERT INTO exams (name, links, duration, exam_date, description, country_id)
+SELECT
+  'IELTS Academic',
+  'https://www.ielts.org',
+  '2h 45m',
+  '2026-06-15',
+  'English language proficiency test widely accepted for study admissions.',
+  c.id
+FROM countries c
+WHERE c.iso_code = 'GB'
+  AND NOT EXISTS (
+    SELECT 1 FROM exams e WHERE e.name = 'IELTS Academic' AND e.country_id = c.id
+  );
+
+INSERT INTO exams (name, links, duration, exam_date, description, country_id)
+SELECT
+  'TOEFL iBT',
+  'https://www.ets.org/toefl',
+  '2h',
+  '2026-06-20',
+  'Internet based English test used by universities in North America and Europe.',
+  c.id
+FROM countries c
+WHERE c.iso_code = 'US'
+  AND NOT EXISTS (
+    SELECT 1 FROM exams e WHERE e.name = 'TOEFL iBT' AND e.country_id = c.id
+  );
+
+INSERT INTO exams (name, links, duration, exam_date, description, country_id)
+SELECT
+  'GRE General Test',
+  'https://www.ets.org/gre',
+  '1h 58m',
+  '2026-07-05',
+  'Graduate admissions test commonly required for MS and PhD programs.',
+  c.id
+FROM countries c
+WHERE c.iso_code = 'US'
+  AND NOT EXISTS (
+    SELECT 1 FROM exams e WHERE e.name = 'GRE General Test' AND e.country_id = c.id
+  );
+
+INSERT INTO exams (name, links, duration, exam_date, description, country_id)
+SELECT
+  'PTE Academic',
+  'https://www.pearsonpte.com',
+  '2h',
+  '2026-07-12',
+  'Computer based English proficiency exam accepted for study and visa processes.',
+  c.id
+FROM countries c
+WHERE c.iso_code = 'AU'
+  AND NOT EXISTS (
+    SELECT 1 FROM exams e WHERE e.name = 'PTE Academic' AND e.country_id = c.id
+  );

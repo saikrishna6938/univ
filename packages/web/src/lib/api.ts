@@ -154,6 +154,62 @@ export type AdminApplication = {
   userEmail?: string;
 };
 
+export type StudentApplication = {
+  id: number;
+  programId: number;
+  countryId?: number | null;
+  status: 'submitted' | 'reviewing' | 'accepted' | 'rejected';
+  applicantName: string;
+  email: string;
+  phone?: string | null;
+  createdAt: string;
+  programName?: string | null;
+  universityName?: string | null;
+  countryName?: string | null;
+  countryIso?: string | null;
+};
+
+export type StudentDocument = {
+  id: number;
+  documentName: string;
+  originalFileName?: string | null;
+  fileUrl: string;
+  mimeType?: string | null;
+  createdAt: string;
+};
+
+export type StudentProfile = {
+  id: number;
+  name: string;
+  email?: string | null;
+  phone?: string | null;
+  city?: string | null;
+  role: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
+  dob?: string | null;
+  gender?: string | null;
+  highestQualification?: string | null;
+  preferredIntake?: string | null;
+  bio?: string | null;
+  profilePictureUrl?: string | null;
+};
+
+export type InterestedStudent = {
+  id: number;
+  name: string;
+  city?: string | null;
+  createdAt: string;
+  interestUpdatedAt: string;
+};
+
+export type StudentDashboardData = {
+  profile: StudentProfile;
+  documents: StudentDocument[];
+  applications: StudentApplication[];
+  interestedStudentsLast6Months: InterestedStudent[];
+  relatedCountryId?: number | null;
+  relatedPrograms: Program[];
+};
+
 export type ApplicationInput = {
   program?: string;
   programId?: string | number;
@@ -187,6 +243,57 @@ export type AdminEvent = {
   title: string;
   eventDate: string;
   createdAt?: string;
+};
+
+export type AdminScholarship = {
+  id: number;
+  name: string;
+  links?: string | null;
+  duration?: string | null;
+  deadline?: string | null;
+  description?: string | null;
+  countryId: number;
+  countryName: string;
+  countryIso: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminStudyGuideTopic = {
+  id: number;
+  name: string;
+  description?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminStudyGuide = {
+  id: number;
+  title: string;
+  summary?: string | null;
+  content?: string | null;
+  links?: string | null;
+  topicId: number;
+  topicName: string;
+  countryId: number;
+  countryName: string;
+  countryIso: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminExam = {
+  id: number;
+  name: string;
+  links?: string | null;
+  duration?: string | null;
+  examDate?: string | null;
+  description?: string | null;
+  countryId: number;
+  countryName: string;
+  countryIso: string;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 const API_URL = import.meta.env.VITE_API_URL || "http://localhost:4000";
@@ -224,6 +331,33 @@ export async function searchPrograms(params: {
   const res = await fetch(url.toString());
   const programs = await handleResponse<Program[]>(res);
   return programs.map(normalizeProgram);
+}
+
+export async function fetchProgramsPage(params: {
+  search?: string;
+  countryId?: string;
+  concentration?: string;
+  location?: string;
+  university?: string;
+  offset?: number;
+  limit?: number;
+}): Promise<{ items: Program[]; total: number }> {
+  const url = new URL(`${API_URL}/api/programs/paginated`);
+  if (params.search) url.searchParams.set('search', params.search);
+  if (params.countryId) url.searchParams.set('countryId', params.countryId);
+  if (params.concentration) url.searchParams.set('concentration', params.concentration);
+  if (params.location) url.searchParams.set('location', params.location);
+  if (params.university) url.searchParams.set('university', params.university);
+  url.searchParams.set('offset', String(params.offset ?? 0));
+  url.searchParams.set('limit', String(params.limit ?? 50));
+  url.searchParams.set('includeTotal', '1');
+
+  const res = await fetch(url.toString());
+  const payload = await handleResponse<{ items: Program[]; total: number }>(res);
+  return {
+    items: payload.items.map(normalizeProgram),
+    total: Number(payload.total || 0)
+  };
 }
 
 export async function submitApplication(input: ApplicationInput) {
@@ -337,6 +471,199 @@ export async function deleteAdminEvent(id: number): Promise<{ success: boolean }
   return handleResponse<{ success: boolean }>(res);
 }
 
+export async function fetchAdminScholarships(): Promise<AdminScholarship[]> {
+  const res = await fetch(`${API_URL}/api/scholarships`);
+  return handleResponse<AdminScholarship[]>(res);
+}
+
+export async function createAdminScholarship(input: {
+  name: string;
+  links?: string | null;
+  duration?: string | null;
+  deadline?: string | null;
+  description?: string | null;
+  countryId: number;
+}): Promise<AdminScholarship> {
+  const res = await fetch(`${API_URL}/api/scholarships`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminScholarship>(res);
+}
+
+export async function updateAdminScholarship(
+  id: number,
+  input: Partial<{
+    name: string;
+    links: string | null;
+    duration: string | null;
+    deadline: string | null;
+    description: string | null;
+    countryId: number;
+  }>
+): Promise<AdminScholarship> {
+  const res = await fetch(`${API_URL}/api/scholarships/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminScholarship>(res);
+}
+
+export async function deleteAdminScholarship(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/scholarships/${id}`, {
+    method: 'DELETE'
+  });
+  return handleResponse<{ success: boolean }>(res);
+}
+
+export async function fetchScholarshipById(id: number): Promise<AdminScholarship> {
+  const res = await fetch(`${API_URL}/api/scholarships/${id}`);
+  return handleResponse<AdminScholarship>(res);
+}
+
+export async function fetchStudyGuideTopics(): Promise<AdminStudyGuideTopic[]> {
+  const res = await fetch(`${API_URL}/api/study-guides/topics`);
+  return handleResponse<AdminStudyGuideTopic[]>(res);
+}
+
+export async function createStudyGuideTopic(input: {
+  name: string;
+  description?: string | null;
+}): Promise<AdminStudyGuideTopic> {
+  const res = await fetch(`${API_URL}/api/study-guides/topics`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminStudyGuideTopic>(res);
+}
+
+export async function updateStudyGuideTopic(
+  id: number,
+  input: Partial<{ name: string; description: string | null }>
+): Promise<AdminStudyGuideTopic> {
+  const res = await fetch(`${API_URL}/api/study-guides/topics/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminStudyGuideTopic>(res);
+}
+
+export async function deleteStudyGuideTopic(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/study-guides/topics/${id}`, { method: 'DELETE' });
+  return handleResponse<{ success: boolean }>(res);
+}
+
+export async function fetchAdminStudyGuides(input?: { country?: number; topicId?: number }): Promise<AdminStudyGuide[]> {
+  const url = new URL(`${API_URL}/api/study-guides`);
+  if (input?.country) url.searchParams.set('country', String(input.country));
+  if (input?.topicId) url.searchParams.set('topicId', String(input.topicId));
+  const res = await fetch(url.toString());
+  return handleResponse<AdminStudyGuide[]>(res);
+}
+
+export async function fetchStudyGuideById(id: number): Promise<AdminStudyGuide> {
+  const res = await fetch(`${API_URL}/api/study-guides/${id}`);
+  return handleResponse<AdminStudyGuide>(res);
+}
+
+export async function createAdminStudyGuide(input: {
+  title: string;
+  summary?: string | null;
+  content?: string | null;
+  links?: string | null;
+  topicId: number;
+  countryId: number;
+}): Promise<AdminStudyGuide> {
+  const res = await fetch(`${API_URL}/api/study-guides`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminStudyGuide>(res);
+}
+
+export async function updateAdminStudyGuide(
+  id: number,
+  input: Partial<{
+    title: string;
+    summary: string | null;
+    content: string | null;
+    links: string | null;
+    topicId: number;
+    countryId: number;
+  }>
+): Promise<AdminStudyGuide> {
+  const res = await fetch(`${API_URL}/api/study-guides/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminStudyGuide>(res);
+}
+
+export async function deleteAdminStudyGuide(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/study-guides/${id}`, {
+    method: 'DELETE'
+  });
+  return handleResponse<{ success: boolean }>(res);
+}
+
+export async function fetchAdminExams(): Promise<AdminExam[]> {
+  const res = await fetch(`${API_URL}/api/exams`);
+  return handleResponse<AdminExam[]>(res);
+}
+
+export async function createAdminExam(input: {
+  name: string;
+  links?: string | null;
+  duration?: string | null;
+  examDate?: string | null;
+  description?: string | null;
+  countryId: number;
+}): Promise<AdminExam> {
+  const res = await fetch(`${API_URL}/api/exams`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminExam>(res);
+}
+
+export async function updateAdminExam(
+  id: number,
+  input: Partial<{
+    name: string;
+    links: string | null;
+    duration: string | null;
+    examDate: string | null;
+    description: string | null;
+    countryId: number;
+  }>
+): Promise<AdminExam> {
+  const res = await fetch(`${API_URL}/api/exams/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminExam>(res);
+}
+
+export async function deleteAdminExam(id: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/exams/${id}`, {
+    method: 'DELETE'
+  });
+  return handleResponse<{ success: boolean }>(res);
+}
+
+export async function fetchExamById(id: number): Promise<AdminExam> {
+  const res = await fetch(`${API_URL}/api/exams/${id}`);
+  return handleResponse<AdminExam>(res);
+}
+
 export async function adminLogin(input: { email: string; password: string }): Promise<AdminUser> {
   const res = await fetch(`${API_URL}/api/auth/admin-login`, {
     method: "POST",
@@ -351,11 +678,102 @@ export async function fetchAdminApplications(): Promise<AdminApplication[]> {
   return handleResponse<AdminApplication[]>(res);
 }
 
+export async function fetchMyApplications(input: { userId?: number; email?: string }): Promise<StudentApplication[]> {
+  const url = new URL(`${API_URL}/api/applications/my`);
+  if (input.userId) url.searchParams.set('userId', String(input.userId));
+  if (input.email) url.searchParams.set('email', input.email);
+  const res = await fetch(url.toString());
+  return handleResponse<StudentApplication[]>(res);
+}
+
+export async function fetchStudentDashboard(userId: number): Promise<StudentDashboardData> {
+  const url = new URL(`${API_URL}/api/auth/student-dashboard`);
+  url.searchParams.set('userId', String(userId));
+  const res = await fetch(url.toString());
+  return handleResponse<StudentDashboardData>(res);
+}
+
+export async function updateStudentProfile(
+  userId: number,
+  input: {
+    name: string;
+    phone?: string | null;
+    city?: string | null;
+    dob?: string | null;
+    gender?: string | null;
+    highestQualification?: string | null;
+    preferredIntake?: string | null;
+    bio?: string | null;
+  }
+): Promise<StudentProfile> {
+  const res = await fetch(`${API_URL}/api/auth/student-profile/${userId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<StudentProfile>(res);
+}
+
+export async function uploadStudentProfilePicture(input: {
+  userId: number;
+  fileName: string;
+  fileBase64: string;
+  mimeType?: string;
+}): Promise<{ profilePictureUrl: string }> {
+  const res = await fetch(`${API_URL}/api/auth/student-profile/${input.userId}/profile-picture`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      fileName: input.fileName,
+      fileBase64: input.fileBase64,
+      mimeType: input.mimeType
+    })
+  });
+  return handleResponse<{ profilePictureUrl: string }>(res);
+}
+
+export async function uploadStudentDocument(input: {
+  userId: number;
+  documentName: string;
+  fileName: string;
+  fileBase64: string;
+  mimeType?: string;
+}): Promise<StudentDocument> {
+  const res = await fetch(`${API_URL}/api/auth/student-documents/${input.userId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      documentName: input.documentName,
+      fileName: input.fileName,
+      fileBase64: input.fileBase64,
+      mimeType: input.mimeType
+    })
+  });
+  return handleResponse<StudentDocument>(res);
+}
+
+export async function deleteStudentDocument(userId: number, documentId: number): Promise<{ success: boolean }> {
+  const url = new URL(`${API_URL}/api/auth/student-documents/${documentId}`);
+  url.searchParams.set('userId', String(userId));
+  const res = await fetch(url.toString(), { method: 'DELETE' });
+  return handleResponse<{ success: boolean }>(res);
+}
+
 export async function fetchEmployeeTasks(userId: number): Promise<EmployeeTask[]> {
   const url = new URL(`${API_URL}/api/applications/employee-tasks`);
   url.searchParams.set('userId', String(userId));
   const res = await fetch(url.toString());
   return handleResponse<EmployeeTask[]>(res);
+}
+
+export async function fetchApplicationStudentDocuments(
+  applicationId: number,
+  employeeUserId: number
+): Promise<StudentDocument[]> {
+  const url = new URL(`${API_URL}/api/applications/${applicationId}/student-documents`);
+  url.searchParams.set('employeeUserId', String(employeeUserId));
+  const res = await fetch(url.toString());
+  return handleResponse<StudentDocument[]>(res);
 }
 
 export async function fetchTaskAnalytics(): Promise<TaskAnalytics> {

@@ -1,7 +1,10 @@
 import StarRounded from '@mui/icons-material/StarRounded';
-import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, InputLabel, MenuItem, Select, Skeleton, Stack, Table, TableBody, TableCell, TableContainer, TableHead, TableRow, TableSortLabel, TextField, Typography } from '@mui/material';
+import EditOutlined from '@mui/icons-material/EditOutlined';
+import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
+import { Alert, Autocomplete, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControl, IconButton, InputLabel, MenuItem, Select, Skeleton, Stack, TableCell, TablePagination, TableRow, TableSortLabel, TextField, Tooltip, Typography } from '@mui/material';
 import { useEffect, useMemo, useState } from 'react';
 import { createFeatured, deleteFeatured, fetchCountries, fetchFeatured, searchPrograms, type Country, type FeaturedUniversity, type Program, updateFeatured } from '../../lib/api';
+import AdminDataTable from '../../components/admin/AdminDataTable';
 import './admin.css';
 
 type SortField = 'universityName' | 'programName' | 'countryName' | 'applicationFee' | 'discount';
@@ -16,6 +19,8 @@ export default function AdminFeaturedUniversitiesPage() {
   const [error, setError] = useState<string | null>(null);
   const [sortField, setSortField] = useState<SortField>('universityName');
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(10);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [dialogMode, setDialogMode] = useState<'create' | 'edit'>('create');
   const [editingItem, setEditingItem] = useState<FeaturedUniversity | null>(null);
@@ -105,6 +110,18 @@ export default function AdminFeaturedUniversitiesPage() {
       return a.id - b.id;
     });
   }, [rows, sortField, sortDirection]);
+
+  const pagedRows = useMemo(() => {
+    const start = page * rowsPerPage;
+    return sortedRows.slice(start, start + rowsPerPage);
+  }, [sortedRows, page, rowsPerPage]);
+
+  useEffect(() => {
+    const maxPage = Math.max(0, Math.ceil(sortedRows.length / rowsPerPage) - 1);
+    if (page > maxPage) {
+      setPage(maxPage);
+    }
+  }, [sortedRows.length, rowsPerPage, page]);
 
   function SortHeader({ field, label }: { field: SortField; label: string }) {
     return (
@@ -227,53 +244,78 @@ export default function AdminFeaturedUniversitiesPage() {
         </Box>
 
         <Box className="admin-panel__body">
-          <TableContainer sx={{ maxHeight: 700 }}>
-            <Table stickyHeader size="small">
-              <TableHead>
-                <TableRow>
-                  <TableCell><SortHeader field="universityName" label="University" /></TableCell>
-                  <TableCell><SortHeader field="programName" label="Program" /></TableCell>
-                  <TableCell><SortHeader field="countryName" label="Country" /></TableCell>
-                  <TableCell><SortHeader field="applicationFee" label="Application Fee" /></TableCell>
-                  <TableCell><SortHeader field="discount" label="Discount" /></TableCell>
-                  <TableCell align="right">Actions</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {loading
-                  ? Array.from({ length: 10 }).map((_, idx) => (
-                      <TableRow key={`featured-skeleton-${idx}`}>
-                        <TableCell colSpan={6}>
-                          <Skeleton height={30} />
-                        </TableCell>
-                      </TableRow>
-                    ))
-                  : sortedRows.map((item) => (
-                      <TableRow hover key={item.id}>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={700}>
-                            {item.universityName}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>{item.programName}</TableCell>
-                        <TableCell>{item.countryName}</TableCell>
-                        <TableCell>{item.applicationFee != null ? `$${Number(item.applicationFee).toFixed(2)}` : '-'}</TableCell>
-                        <TableCell>{item.discount != null ? `${Number(item.discount)}%` : '-'}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            <Button size="small" variant="outlined" onClick={() => openEditDialog(item)}>
-                              Edit
-                            </Button>
-                            <Button size="small" color="error" variant="outlined" onClick={() => removeItem(item)}>
-                              Delete
-                            </Button>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-              </TableBody>
-            </Table>
-          </TableContainer>
+          <AdminDataTable
+            tableMinWidth={1020}
+            maxBodyHeight={{
+              xs: 'calc(100vh - 390px)',
+              md: 'calc(100vh - 360px)'
+            }}
+            minBodyHeight={{
+              xs: 'calc(100vh - 500px)',
+              md: 'calc(100vh - 450px)'
+            }}
+            headerRow={
+              <TableRow>
+                <TableCell><SortHeader field="universityName" label="University" /></TableCell>
+                <TableCell><SortHeader field="programName" label="Program" /></TableCell>
+                <TableCell><SortHeader field="countryName" label="Country" /></TableCell>
+                <TableCell><SortHeader field="applicationFee" label="Application Fee" /></TableCell>
+                <TableCell><SortHeader field="discount" label="Discount" /></TableCell>
+                <TableCell align="right">Actions</TableCell>
+              </TableRow>
+            }
+            bodyRows={
+              loading
+                ? Array.from({ length: 10 }).map((_, idx) => (
+                    <TableRow key={`featured-skeleton-${idx}`}>
+                      <TableCell colSpan={6}>
+                        <Skeleton height={30} />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                : pagedRows.map((item) => (
+                    <TableRow hover key={item.id}>
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={700}>
+                          {item.universityName}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{item.programName}</TableCell>
+                      <TableCell>{item.countryName}</TableCell>
+                      <TableCell>{item.applicationFee != null ? `$${Number(item.applicationFee).toFixed(2)}` : '-'}</TableCell>
+                      <TableCell>{item.discount != null ? `${Number(item.discount)}%` : '-'}</TableCell>
+                      <TableCell align="right">
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          <Tooltip title="Edit featured university">
+                            <IconButton size="small" color="primary" onClick={() => openEditDialog(item)}>
+                              <EditOutlined fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                          <Tooltip title="Delete featured university">
+                            <IconButton size="small" color="error" onClick={() => removeItem(item)}>
+                              <DeleteOutlineRounded fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        </Stack>
+                      </TableCell>
+                    </TableRow>
+                  ))
+            }
+          />
+          {!loading ? (
+            <TablePagination
+              component="div"
+              count={sortedRows.length}
+              page={page}
+              onPageChange={(_event, newPage) => setPage(newPage)}
+              rowsPerPage={rowsPerPage}
+              onRowsPerPageChange={(event) => {
+                setRowsPerPage(parseInt(event.target.value, 10));
+                setPage(0);
+              }}
+              rowsPerPageOptions={[10, 25, 50]}
+            />
+          ) : null}
         </Box>
       </Box>
 

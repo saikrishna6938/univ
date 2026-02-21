@@ -10,6 +10,7 @@ import Stack from "@mui/material/Stack";
 type Props = {
   open: boolean;
   program: Program | null;
+  applied?: boolean;
   onClose: () => void;
   onApply?: (program: Program) => void;
 };
@@ -17,6 +18,7 @@ type Props = {
 export default function ProgramDetailModal({
   open,
   program,
+  applied = false,
   onClose,
   onApply,
 }: Props) {
@@ -49,14 +51,14 @@ export default function ProgramDetailModal({
             {program.location && <Chip label={program.location} size="small" />}
           </>
         </Stack>
-        {program.intakes && (
+        {program.levelOfStudy && (
           <Typography gutterBottom>
-            <strong>Intakes:</strong> {program.intakes}
+            <strong>Level:</strong> {program.levelOfStudy}
           </Typography>
         )}
-        {program.deadlines && (
+        {program.location && (
           <Typography gutterBottom>
-            <strong>Deadlines:</strong> {program.deadlines}
+            <strong>Location:</strong> {program.location}
           </Typography>
         )}
         {program.tuitionFeePerYear && (
@@ -69,9 +71,14 @@ export default function ProgramDetailModal({
             <strong>Application fee:</strong> {program.applicationFee}
           </Typography>
         )}
-        {program.description && (
+        {program.intakes && (
           <Typography gutterBottom sx={{ mt: 1 }}>
-            {program.description}
+            <strong>Intakes:</strong> {program.intakes}
+          </Typography>
+        )}
+        {program.deadlines && (
+          <Typography gutterBottom>
+            <strong>Deadlines:</strong> {program.deadlines}
           </Typography>
         )}
       </DialogContent>
@@ -79,12 +86,14 @@ export default function ProgramDetailModal({
         <Button onClick={onClose}>Close</Button>
         <Button
           variant="contained"
+          disabled={applied}
           onClick={() => {
+            if (applied) return;
             onApply?.(program);
             onClose();
           }}
         >
-          Apply
+          {applied ? 'Applied' : 'Apply'}
         </Button>
       </DialogActions>
     </Dialog>

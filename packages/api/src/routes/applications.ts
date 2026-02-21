@@ -3,6 +3,32 @@ import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../config/database';
 
 const router = Router();
+let ensureStudentDocumentsTablePromise: Promise<void> | null = null;
+
+async function ensureStudentDocumentsTable() {
+  if (!ensureStudentDocumentsTablePromise) {
+    ensureStudentDocumentsTablePromise = (async () => {
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS student_documents (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          user_id INT NOT NULL,
+          document_name VARCHAR(255) NOT NULL,
+          original_file_name VARCHAR(255) NULL,
+          file_url VARCHAR(512) NOT NULL,
+          mime_type VARCHAR(120) NULL,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          CONSTRAINT fk_student_document_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+          INDEX idx_student_documents_user_created (user_id, created_at)
+        )`
+      );
+    })().catch((err) => {
+      ensureStudentDocumentsTablePromise = null;
+      throw err;
+    });
+  }
+  await ensureStudentDocumentsTablePromise;
+}
 
 // POST /api/applications
 router.post('/', async (req, res) => {
@@ -116,6 +142,51 @@ router.get('/', async (_req, res) => {
      LEFT JOIN users u ON a.user_id = u.id
      ORDER BY a.created_at DESC
      LIMIT 100`
+  );
+
+  res.json(rows);
+});
+
+// GET /api/applications/my?userId=1&email=a@b.com
+router.get('/my', async (req, res) => {
+  const userId = req.query.userId ? Number(req.query.userId) : null;
+  const email = req.query.email ? String(req.query.email).trim().toLowerCase() : null;
+
+  if ((!userId || Number.isNaN(userId)) && !email) {
+    return res.status(400).json({ error: 'userId or email is required' });
+  }
+
+  const where: string[] = [];
+  const params: Array<number | string> = [];
+  if (userId && !Number.isNaN(userId)) {
+    where.push('a.user_id = ?');
+    params.push(userId);
+  }
+  if (email) {
+    where.push('a.email = ?');
+    params.push(email);
+  }
+
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT a.id,
+            a.program_id AS programId,
+            a.country_id AS countryId,
+            a.status,
+            a.applicant_name AS applicantName,
+            a.email,
+            a.phone,
+            a.created_at AS createdAt,
+            p.program_name AS programName,
+            p.university_name AS universityName,
+            c.name AS countryName,
+            c.iso_code AS countryIso
+     FROM applications a
+     LEFT JOIN programs p ON p.id = a.program_id
+     LEFT JOIN countries c ON c.id = a.country_id
+     WHERE ${where.join(' OR ')}
+     ORDER BY a.created_at DESC
+     LIMIT 300`,
+    params
   );
 
   res.json(rows);
@@ -258,6 +329,65 @@ router.get('/employee-tasks', async (req, res) => {
   );
 
   res.json(rows);
+});
+
+// GET /api/applications/:applicationId/student-documents?employeeUserId=123
+router.get('/:applicationId/student-documents', async (req, res) => {
+  await ensureStudentDocumentsTable();
+  const applicationId = Number(req.params.applicationId);
+  const employeeUserId = Number(req.query.employeeUserId);
+
+  if (!applicationId || Number.isNaN(applicationId)) {
+    return res.status(400).json({ error: 'Valid applicationId is required' });
+  }
+  if (!employeeUserId || Number.isNaN(employeeUserId)) {
+    return res.status(400).json({ error: 'Valid employeeUserId is required' });
+  }
+
+  const [applicationRows] = await pool.query<RowDataPacket[]>(
+    `SELECT a.user_id AS userId
+     FROM applications a
+     INNER JOIN user_country_access uca
+       ON uca.country_id = a.country_id
+      AND uca.user_id = ?
+     WHERE a.id = ?
+     LIMIT 1`,
+    [employeeUserId, applicationId]
+  );
+
+  if (!applicationRows.length) {
+    return res.status(404).json({ error: 'Application not found or access denied' });
+  }
+
+  const linkedUserId = Number(applicationRows[0].userId);
+  if (!linkedUserId || Number.isNaN(linkedUserId)) {
+    return res.json([]);
+  }
+
+  const [documentRows] = await pool.query<RowDataPacket[]>(
+    `SELECT id,
+            document_name AS documentName,
+            original_file_name AS originalFileName,
+            file_url AS fileUrl,
+            mime_type AS mimeType,
+            created_at AS createdAt
+     FROM student_documents
+     WHERE user_id = ?
+     ORDER BY created_at DESC
+     LIMIT 100`,
+    [linkedUserId]
+  );
+
+  res.json(
+    documentRows.map((row) => ({
+      id: Number(row.id),
+      documentName: String(row.documentName || 'Document'),
+      originalFileName: row.originalFileName ? String(row.originalFileName) : null,
+      fileUrl: String(row.fileUrl || ''),
+      mimeType: row.mimeType ? String(row.mimeType) : null,
+      createdAt: row.createdAt
+    }))
+  );
 });
 
 // PUT /api/applications/employee-tasks/:applicationId

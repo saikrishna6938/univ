@@ -3,6 +3,14 @@ import { pool } from '../config/database';
 import { RowDataPacket } from 'mysql2';
 
 const router = Router();
+const MENU_CACHE_CONTROL = 'public, max-age=300, s-maxage=300, stale-while-revalidate=600';
+
+router.use((req, res, next) => {
+  if (req.method === 'GET') {
+    res.setHeader('Cache-Control', MENU_CACHE_CONTROL);
+  }
+  next();
+});
 
 // GET /api/locations?country=<id or isoCode>
 router.get('/', async (req, res) => {

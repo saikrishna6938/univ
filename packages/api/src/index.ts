@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import path from 'path';
 import { env } from './config/env';
 import { connectToDatabase } from './config/database';
 import notesRouter from './routes/notes';
@@ -13,6 +14,9 @@ import concentrationsRouter from './routes/concentrations';
 import locationsRouter from './routes/locations';
 import eventsRouter from './routes/events';
 import leadConversationsRouter from './routes/leadConversations';
+import scholarshipsRouter from './routes/scholarships';
+import studyGuidesRouter from './routes/studyGuides';
+import examsRouter from './routes/exams';
 
 async function start() {
   await connectToDatabase();
@@ -29,6 +33,7 @@ async function start() {
     })
   );
   app.use(express.json());
+  app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', env: env.nodeEnv });
@@ -44,6 +49,9 @@ async function start() {
   app.use('/api/concentrations', concentrationsRouter);
   app.use('/api/locations', locationsRouter);
   app.use('/api/events', eventsRouter);
+  app.use('/api/scholarships', scholarshipsRouter);
+  app.use('/api/study-guides', studyGuidesRouter);
+  app.use('/api/exams', examsRouter);
   app.use('/api/lead-conversations', leadConversationsRouter);
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {

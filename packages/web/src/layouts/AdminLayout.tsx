@@ -4,10 +4,14 @@ import DashboardRounded from '@mui/icons-material/DashboardRounded';
 import GroupRounded from '@mui/icons-material/GroupRounded';
 import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import MenuRounded from '@mui/icons-material/MenuRounded';
+import MenuOpenRounded from '@mui/icons-material/MenuOpenRounded';
 import SchoolRounded from '@mui/icons-material/SchoolRounded';
 import StarRounded from '@mui/icons-material/StarRounded';
 import EventRounded from '@mui/icons-material/EventRounded';
-import { AppBar, Avatar, Box, Button, Chip, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Typography, useMediaQuery } from '@mui/material';
+import WorkspacePremiumRounded from '@mui/icons-material/WorkspacePremiumRounded';
+import AutoStoriesRounded from '@mui/icons-material/AutoStoriesRounded';
+import QuizRounded from '@mui/icons-material/QuizRounded';
+import { AppBar, Avatar, Box, Button, Chip, Divider, Drawer, IconButton, List, ListItemButton, ListItemIcon, ListItemText, Toolbar, Tooltip, Typography, useMediaQuery } from '@mui/material';
 import { useTheme } from '@mui/material/styles';
 import { useMemo, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
@@ -22,11 +26,13 @@ type NavItem = {
 };
 
 const drawerWidth = 278;
+const drawerCollapsedWidth = 84;
 
 export default function AdminLayout() {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
   const { adminUser, logout } = useAdminAuth();
@@ -46,10 +52,16 @@ export default function AdminLayout() {
         roles: ['admin', 'manager', 'employee']
       },
       {
+        label: 'Tasks',
+        to: '/admin/tasks',
+        icon: <ChecklistRounded fontSize="small" />,
+        roles: ['employee']
+      },
+      {
         label: 'Programs Manager',
         to: '/admin/programs',
         icon: <SchoolRounded fontSize="small" />,
-        roles: ['admin', 'manager']
+        roles: ['admin', 'manager', 'employee']
       },
       {
         label: 'Featured Universities',
@@ -64,11 +76,23 @@ export default function AdminLayout() {
         roles: ['admin', 'manager']
       },
       {
-        label: 'Tasks',
-        to: '/admin/tasks',
-        icon: <ChecklistRounded fontSize="small" />,
-        roles: ['employee']
-      }
+        label: 'Scholarships',
+        to: '/admin/scholarships',
+        icon: <WorkspacePremiumRounded fontSize="small" />,
+        roles: ['admin', 'manager', 'employee']
+      },
+      {
+        label: 'Study Guides',
+        to: '/admin/study-guides',
+        icon: <AutoStoriesRounded fontSize="small" />,
+        roles: ['admin', 'manager', 'employee']
+      },
+      {
+        label: 'Exams',
+        to: '/admin/exams',
+        icon: <QuizRounded fontSize="small" />,
+        roles: ['admin', 'manager', 'employee']
+      },
     ],
     []
   );
@@ -91,16 +115,34 @@ export default function AdminLayout() {
         background: 'linear-gradient(180deg, #0f172a 0%, #111827 45%, #1f2937 100%)'
       }}
     >
-      <Box sx={{ p: 3, display: 'flex', alignItems: 'center', gap: 1.5 }}>
-        <Avatar sx={{ bgcolor: '#0ea5e9', fontWeight: 700 }}>GW</Avatar>
-        <Box>
-          <Typography variant="subtitle1" fontWeight={800} lineHeight={1.1}>
-            Admin Studio
-          </Typography>
-          <Typography variant="caption" sx={{ opacity: 0.75 }}>
-            Gradwalk operations
-          </Typography>
-        </Box>
+      <Box sx={{ p: sidebarCollapsed ? 1.5 : 3, display: 'flex', alignItems: 'center', justifyContent: sidebarCollapsed ? 'center' : 'space-between', gap: 1.5 }}>
+        {!sidebarCollapsed ? (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Avatar sx={{ bgcolor: '#0ea5e9', fontWeight: 700 }}>GW</Avatar>
+            <Box>
+              <Typography variant="subtitle1" fontWeight={800} lineHeight={1.1}>
+                Admin Studio
+              </Typography>
+              <Typography variant="caption" sx={{ opacity: 0.75 }}>
+                Gradwalk operations
+              </Typography>
+            </Box>
+          </Box>
+        ) : (
+          <Avatar sx={{ bgcolor: '#0ea5e9', fontWeight: 700 }}>GW</Avatar>
+        )}
+        {!isMobile ? (
+          <Tooltip title={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}>
+            <IconButton
+              size="small"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              sx={{ color: '#cbd5e1', ml: sidebarCollapsed ? 0 : 1 }}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            >
+              {sidebarCollapsed ? <MenuRounded fontSize="small" /> : <MenuOpenRounded fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        ) : null}
       </Box>
       <Divider sx={{ borderColor: 'rgba(148, 163, 184, 0.2)' }} />
       <List sx={{ p: 1.5 }}>
@@ -116,25 +158,32 @@ export default function AdminLayout() {
                 mb: 0.75,
                 borderRadius: 2,
                 ml: item.nested ? 1.5 : 0,
-                pl: item.nested ? 3 : 1.5,
+                pl: sidebarCollapsed ? 1 : item.nested ? 3 : 1.5,
+                justifyContent: sidebarCollapsed ? 'center' : 'flex-start',
                 bgcolor: selected ? 'rgba(14, 165, 233, 0.2)' : 'transparent',
                 '&:hover': { bgcolor: 'rgba(148, 163, 184, 0.16)' }
               }}
             >
-              <ListItemIcon sx={{ color: selected ? '#67e8f9' : '#cbd5e1', minWidth: 34 }}>{item.icon}</ListItemIcon>
-              <ListItemText
-                primary={item.label}
-                primaryTypographyProps={{ fontWeight: selected ? 700 : 500, color: selected ? '#f8fafc' : '#e2e8f0' }}
-              />
+              <ListItemIcon sx={{ color: selected ? '#67e8f9' : '#cbd5e1', minWidth: sidebarCollapsed ? 0 : 34, mr: sidebarCollapsed ? 0 : undefined }}>{item.icon}</ListItemIcon>
+              {!sidebarCollapsed ? (
+                <ListItemText
+                  primary={item.label}
+                  primaryTypographyProps={{ fontWeight: selected ? 700 : 500, color: selected ? '#f8fafc' : '#e2e8f0' }}
+                />
+              ) : null}
             </ListItemButton>
           );
         })}
       </List>
-      <Box sx={{ px: 2.5, mt: 'auto', pb: 3 }}>
-        <Chip icon={<AppsRounded />} label="Theme-ready UI" sx={{ bgcolor: 'rgba(148, 163, 184, 0.14)', color: '#cbd5e1' }} />
-      </Box>
+      {!sidebarCollapsed ? (
+        <Box sx={{ px: 2.5, mt: 'auto', pb: 3 }}>
+          <Chip icon={<AppsRounded />} label="Theme-ready UI" sx={{ bgcolor: 'rgba(148, 163, 184, 0.14)', color: '#cbd5e1' }} />
+        </Box>
+      ) : null}
     </Box>
   );
+
+  const effectiveDrawerWidth = isMobile ? drawerWidth : sidebarCollapsed ? drawerCollapsedWidth : drawerWidth;
 
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: '#f1f5f9' }}>
@@ -143,8 +192,8 @@ export default function AdminLayout() {
         color="inherit"
         elevation={0}
         sx={{
-          width: { md: `calc(100% - ${drawerWidth}px)` },
-          ml: { md: `${drawerWidth}px` },
+          width: { md: `calc(100% - ${effectiveDrawerWidth}px)` },
+          ml: { md: `${effectiveDrawerWidth}px` },
           borderBottom: '1px solid #e2e8f0',
           bgcolor: 'rgba(248, 250, 252, 0.9)',
           backdropFilter: 'blur(8px)'
@@ -176,7 +225,7 @@ export default function AdminLayout() {
         </Toolbar>
       </AppBar>
 
-      <Box component="nav" sx={{ width: { md: drawerWidth }, flexShrink: { md: 0 } }}>
+      <Box component="nav" sx={{ width: { md: effectiveDrawerWidth }, flexShrink: { md: 0 } }}>
         <Drawer
           variant={isMobile ? 'temporary' : 'permanent'}
           open={isMobile ? mobileOpen : true}
@@ -184,7 +233,7 @@ export default function AdminLayout() {
           ModalProps={{ keepMounted: true }}
           sx={{
             '& .MuiDrawer-paper': {
-              width: drawerWidth,
+              width: effectiveDrawerWidth,
               boxSizing: 'border-box',
               borderRight: 'none'
             }
@@ -199,7 +248,7 @@ export default function AdminLayout() {
         sx={{
           flexGrow: 1,
           p: { xs: 2, md: 3 },
-          width: { md: `calc(100% - ${drawerWidth}px)` },
+          width: { md: `calc(100% - ${effectiveDrawerWidth}px)` },
           mt: '72px'
         }}
       >

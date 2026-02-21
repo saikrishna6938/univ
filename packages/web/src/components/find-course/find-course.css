@@ -283,6 +283,78 @@
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.04);
 }
 
+.fc-card--clean {
+  border-radius: 14px;
+  padding: 14px;
+}
+
+.fc-card__header--clean {
+  align-items: flex-start;
+}
+
+.fc-card__actions {
+  display: flex;
+  gap: 8px;
+}
+
+.fc-like-btn,
+.fc-apply-btn {
+  border: 1px solid #e2e8f0;
+  background: #fff;
+  color: #334155;
+  border-radius: 10px;
+  height: 34px;
+  padding: 0 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.fc-like-btn.is-active {
+  border-color: #fbcfe8;
+  background: #fdf2f8;
+  color: #be185d;
+}
+
+.fc-apply-btn {
+  border-color: #bfdbfe;
+  background: #eff6ff;
+  color: #1d4ed8;
+}
+
+.fc-apply-btn.is-applied {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+  cursor: not-allowed;
+}
+
+.fc-card__quick-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fc-card__quick-item {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 8px;
+  display: grid;
+  gap: 4px;
+}
+
+.fc-card__quick-item span {
+  color: #64748b;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.fc-card__quick-item strong {
+  color: #0f172a;
+  font-size: 12px;
+  line-height: 1.2;
+}
+
 .fc-card__header {
   display: flex;
   justify-content: space-between;
@@ -430,5 +502,12 @@
   .fc-kv {
     grid-template-columns: 1fr;
     gap: 2px;
+  }
+  .fc-card__quick-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .fc-card__actions {
+    width: 100%;
+    justify-content: flex-end;
   }
 }
