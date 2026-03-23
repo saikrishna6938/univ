@@ -1,10 +1,11 @@
 import PublicRounded from '@mui/icons-material/PublicRounded';
 import RefreshRounded from '@mui/icons-material/RefreshRounded';
 import TrendingUpRounded from '@mui/icons-material/TrendingUpRounded';
-import { Alert, Box, Chip, CircularProgress, IconButton, Skeleton, Stack, Tooltip, Typography } from '@mui/material';
+import { Alert, Box, Chip, CircularProgress, IconButton, Skeleton, Stack, TableCell, TableRow, Tooltip, Typography } from '@mui/material';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { EmployeeTask, LeadUser, TodayReminder } from '../../lib/api';
-import { fetchEmployeeTasks, fetchLeadsSummary, fetchTaskAnalytics } from '../../lib/api';
+import type { EmployeeTask, LeadConversation, LeadUser, TodayReminder } from '../../lib/api';
+import { fetchEmployeeTasks, fetchLeadConversations, fetchLeadsSummary, fetchTaskAnalytics } from '../../lib/api';
+import AdminDataTable from '../../components/admin/AdminDataTable';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
 
@@ -22,6 +23,22 @@ function getTaskAgingStatus(task: EmployeeTask): 'on_time' | 'aging' | 'critical
   return 'aging';
 }
 
+function getBucketCountBadgeSx(type: 'bucket' | 'hot' | 'warm' | 'cold' | 'new') {
+  if (type === 'hot') {
+    return { bgcolor: '#dcfce7', color: '#166534', border: '1px solid #86efac' };
+  }
+  if (type === 'warm') {
+    return { bgcolor: '#fef3c7', color: '#92400e', border: '1px solid #fcd34d' };
+  }
+  if (type === 'cold') {
+    return { bgcolor: '#e2e8f0', color: '#334155', border: '1px solid #cbd5e1' };
+  }
+  if (type === 'new') {
+    return { bgcolor: '#e0f2fe', color: '#075985', border: '1px solid #7dd3fc' };
+  }
+  return { bgcolor: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe' };
+}
+
 export default function AdminDashboardPage() {
   const { adminUser } = useAdminAuth();
   const [totalLeads, setTotalLeads] = useState(0);
@@ -30,6 +47,7 @@ export default function AdminDashboardPage() {
   const [recentUsers, setRecentUsers] = useState<LeadUser[]>([]);
   const [todaysRemindersCount, setTodaysRemindersCount] = useState(0);
   const [todaysReminders, setTodaysReminders] = useState<TodayReminder[]>([]);
+  const [leadConversations, setLeadConversations] = useState<LeadConversation[]>([]);
   const [employeeTasks, setEmployeeTasks] = useState<EmployeeTask[]>([]);
   const [usersByLocation, setUsersByLocation] = useState<Array<{ location: string; count: number }>>([]);
   const [employeeTaskCounts, setEmployeeTaskCounts] = useState<
@@ -55,10 +73,11 @@ export default function AdminDashboardPage() {
 
     try {
       const isEmployee = adminUser?.role === 'employee';
-      const [summary, tasks, analytics] = await Promise.all([
+      const [summary, tasks, analytics, conversations] = await Promise.all([
         fetchLeadsSummary(),
         isEmployee && adminUser?.id ? fetchEmployeeTasks(adminUser.id) : Promise.resolve([]),
-        isEmployee ? Promise.resolve(null) : fetchTaskAnalytics()
+        isEmployee ? Promise.resolve(null) : fetchTaskAnalytics(),
+        fetchLeadConversations()
       ]);
       if (!mountedRef.current) return;
       setTotalLeads(summary.totalLeads);
@@ -67,6 +86,7 @@ export default function AdminDashboardPage() {
       setRecentUsers(summary.recentUsers);
       setTodaysRemindersCount(summary.todaysRemindersCount);
       setTodaysReminders(summary.todaysReminders);
+      setLeadConversations(conversations);
       setUsersByLocation(summary.usersByLocation);
       setEmployeeTasks(tasks);
       setEmployeeTaskCounts(analytics?.employeeTasks || []);
@@ -140,6 +160,96 @@ export default function AdminDashboardPage() {
       }),
     [recentUsers]
   );
+  const activeBucketConversations = useMemo(
+    () =>
+      leadConversations.filter(
+        (conversation) =>
+          conversation.assignedEmployeeUserId === adminUser?.id && conversation.conversationStatus !== 'Closed'
+      ),
+    [adminUser?.id, leadConversations]
+  );
+  const myBucketCount = useMemo(
+    () => activeBucketConversations.length,
+    [activeBucketConversations]
+  );
+  const myBucketBreakdown = useMemo(() => {
+    const counts = {
+      hot: activeBucketConversations.filter((conversation) => conversation.leadType === 'HOT').length,
+      warm: activeBucketConversations.filter((conversation) => conversation.leadType === 'WARM').length,
+      cold: activeBucketConversations.filter((conversation) => conversation.leadType === 'COLD').length,
+      newCount: activeBucketConversations.filter((conversation) => conversation.conversationStatus === 'Awaiting Response').length
+    };
+
+    return {
+      items: [
+        { key: 'hot', label: 'Hot', count: counts.hot, color: 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)' },
+        { key: 'warm', label: 'Warm', count: counts.warm, color: 'linear-gradient(180deg, #fbbf24 0%, #d97706 100%)' },
+        { key: 'cold', label: 'Cold', count: counts.cold, color: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)' },
+        { key: 'new', label: 'New', count: counts.newCount, color: 'linear-gradient(180deg, #38bdf8 0%, #2563eb 100%)' }
+      ],
+      max: Math.max(1, counts.hot, counts.warm, counts.cold, counts.newCount)
+    };
+  }, [activeBucketConversations]);
+  const thisMonthLeadMix = useMemo(() => {
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+    const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
+    const monthlyConversations = leadConversations.filter((conversation) => {
+      if (conversation.conversationStatus === 'Closed') return false;
+      const updatedAt = new Date(conversation.updatedAt).getTime();
+      return updatedAt >= monthStart && updatedAt < monthEnd;
+    });
+    const counts = {
+      hot: monthlyConversations.filter((conversation) => conversation.leadType === 'HOT').length,
+      warm: monthlyConversations.filter((conversation) => conversation.leadType === 'WARM').length,
+      cold: monthlyConversations.filter((conversation) => conversation.leadType === 'COLD').length
+    };
+
+    return {
+      items: [
+        { key: 'hot', label: 'Hot', count: counts.hot, color: 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)' },
+        { key: 'warm', label: 'Warm', count: counts.warm, color: 'linear-gradient(180deg, #fbbf24 0%, #d97706 100%)' },
+        { key: 'cold', label: 'Cold', count: counts.cold, color: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)' }
+      ],
+      max: Math.max(1, counts.hot, counts.warm, counts.cold),
+      total: counts.hot + counts.warm + counts.cold
+    };
+  }, [leadConversations]);
+  const employeeBucketStatusCounts = useMemo(() => {
+    const buckets = new Map<number, {
+      employeeUserId: number;
+      employeeName: string;
+      total: number;
+      hot: number;
+      warm: number;
+      cold: number;
+      newCount: number;
+    }>();
+
+    leadConversations.forEach((conversation) => {
+      if (!conversation.assignedEmployeeUserId || conversation.conversationStatus === 'Closed') return;
+
+      const current = buckets.get(conversation.assignedEmployeeUserId) || {
+        employeeUserId: conversation.assignedEmployeeUserId,
+        employeeName: conversation.assignedEmployee?.name || `Employee ${conversation.assignedEmployeeUserId}`,
+        total: 0,
+        hot: 0,
+        warm: 0,
+        cold: 0,
+        newCount: 0
+      };
+
+      current.total += 1;
+      if (conversation.leadType === 'HOT') current.hot += 1;
+      else if (conversation.leadType === 'WARM') current.warm += 1;
+      else current.cold += 1;
+      if (conversation.conversationStatus === 'Awaiting Response') current.newCount += 1;
+
+      buckets.set(conversation.assignedEmployeeUserId, current);
+    });
+
+    return Array.from(buckets.values()).sort((a, b) => b.total - a.total || a.employeeName.localeCompare(b.employeeName));
+  }, [leadConversations]);
 
   const taskAgingBreakdown = useMemo(() => {
     const counts = adminUser?.role === 'employee'
@@ -197,9 +307,9 @@ export default function AdminDashboardPage() {
         icon: <TrendingUpRounded fontSize="small" sx={{ color: '#0369a1' }} />
       },
       {
-        label: 'This Week',
-        value: thisWeekRegistrations,
-        helper: 'Registrations in last 7 days',
+        label: adminUser?.role === 'employee' ? 'My Bucket' : 'This Week',
+        value: adminUser?.role === 'employee' ? myBucketCount : thisWeekRegistrations,
+        helper: adminUser?.role === 'employee' ? 'Leads assigned to my bucket' : 'Registrations in last 7 days',
         icon: <TrendingUpRounded fontSize="small" sx={{ color: '#2563eb' }} />
       },
       ...(adminUser?.role === 'employee'
@@ -231,6 +341,7 @@ export default function AdminDashboardPage() {
       underProcessTasks.length,
       totalLeads,
       todayRegistrations,
+      myBucketCount,
       thisWeekRegistrations,
       recentLoginCount,
       todaysRemindersCount
@@ -342,12 +453,36 @@ export default function AdminDashboardPage() {
           <Box className="admin-panel__head">
             <Typography variant="h6" fontWeight={800} sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
               <PublicRounded sx={{ fontSize: 18, color: '#0369a1' }} />
-              Users by Location
+              {adminUser?.role === 'employee' ? 'My Bucket Breakdown' : 'Users by Location'}
             </Typography>
           </Box>
           <Box className="admin-panel__body">
             {loading ? (
               Array.from({ length: 6 }).map((_, idx) => <Skeleton key={`location-skeleton-top-${idx}`} height={34} />)
+            ) : adminUser?.role === 'employee' ? (
+              <Box className="admin-insight-chart">
+                {myBucketBreakdown.items.map((item) => (
+                  <Box className="admin-insight-chart__item" key={`bucket-${item.key}`}>
+                    <Typography className="admin-insight-chart__value" variant="caption">
+                      {item.count}
+                    </Typography>
+                    <Tooltip title={`${item.label}: ${item.count} leads`} arrow placement="top">
+                      <Box className="admin-insight-chart__track">
+                        <Box
+                          className="admin-insight-chart__bar"
+                          sx={{
+                            height: `${Math.max(8, (item.count / myBucketBreakdown.max) * 100)}%`,
+                            background: item.color
+                          }}
+                        />
+                      </Box>
+                    </Tooltip>
+                    <Typography className="admin-insight-chart__label" variant="caption">
+                      {item.label}
+                    </Typography>
+                  </Box>
+                ))}
+              </Box>
             ) : (
               <Box className="admin-location-chart">
                 {usersByLocation.map((item) => (
@@ -427,6 +562,137 @@ export default function AdminDashboardPage() {
 
       {adminUser?.role !== 'employee' ? (
         <Box className="admin-grid admin-grid--analytics">
+          <Box className="admin-panel">
+            <Box className="admin-panel__head">
+              <Typography variant="h6" fontWeight={800}>
+                This Month Lead Mix
+              </Typography>
+            </Box>
+            <Box className="admin-panel__body">
+              {loading ? (
+                <Skeleton height={220} />
+              ) : thisMonthLeadMix.total === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No active hot, warm, or cold leads updated this month.
+                </Typography>
+              ) : (
+                <Box className="admin-insight-chart">
+                  {thisMonthLeadMix.items.map((item) => (
+                    <Box className="admin-insight-chart__item" key={`monthly-lead-${item.key}`}>
+                      <Typography className="admin-insight-chart__value" variant="caption">
+                        {item.count}
+                      </Typography>
+                      <Tooltip title={`${item.label}: ${item.count} leads this month`} arrow placement="top">
+                        <Box className="admin-insight-chart__track">
+                          <Box
+                            className="admin-insight-chart__bar"
+                            sx={{
+                              height: `${Math.max(8, (item.count / thisMonthLeadMix.max) * 100)}%`,
+                              background: item.color
+                            }}
+                          />
+                        </Box>
+                      </Tooltip>
+                      <Typography className="admin-insight-chart__label" variant="caption">
+                        {item.label}
+                      </Typography>
+                    </Box>
+                  ))}
+                </Box>
+              )}
+            </Box>
+          </Box>
+
+          <Box className="admin-panel">
+            <Box className="admin-panel__head">
+              <Typography variant="h6" fontWeight={800}>
+                Employee Bucket Counts
+              </Typography>
+            </Box>
+            <Box className="admin-panel__body">
+              {loading ? (
+                Array.from({ length: 6 }).map((_, idx) => <Skeleton key={`employee-bucket-skeleton-${idx}`} height={36} />)
+              ) : employeeBucketStatusCounts.length === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No active employee buckets available.
+                </Typography>
+              ) : (
+                <AdminDataTable
+                  tableMinWidth={640}
+                  tableLayout="fixed"
+                  maxBodyHeight={340}
+                  headerSx={{
+                    '& .MuiTableCell-root': {
+                      whiteSpace: 'nowrap',
+                      fontSize: '0.78rem',
+                      textAlign: 'center'
+                    }
+                  }}
+                  bodySx={{
+                    '& .MuiTableCell-root': {
+                      whiteSpace: 'nowrap',
+                      textAlign: 'center'
+                    }
+                  }}
+                  headerRow={
+                    <TableRow>
+                      <TableCell align="center" sx={{ width: '32%' }}>Employee</TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>Bucket</TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>Hot</TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>Warm</TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>Cold</TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>New</TableCell>
+                    </TableRow>
+                  }
+                  bodyRows={employeeBucketStatusCounts.map((item) => (
+                    <TableRow hover key={`employee-bucket-${item.employeeUserId}`}>
+                      <TableCell align="center" sx={{ width: '32%' }}>
+                        <Typography variant="body2" fontWeight={700}>
+                          {item.employeeName}
+                        </Typography>
+                      </TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>
+                        <Chip
+                          size="small"
+                          label={item.total}
+                          sx={{ borderRadius: 999, minWidth: 36, justifyContent: 'center', ...getBucketCountBadgeSx('bucket') }}
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>
+                        <Chip
+                          size="small"
+                          label={item.hot}
+                          sx={{ borderRadius: 999, minWidth: 36, justifyContent: 'center', ...getBucketCountBadgeSx('hot') }}
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>
+                        <Chip
+                          size="small"
+                          label={item.warm}
+                          sx={{ borderRadius: 999, minWidth: 36, justifyContent: 'center', ...getBucketCountBadgeSx('warm') }}
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>
+                        <Chip
+                          size="small"
+                          label={item.cold}
+                          sx={{ borderRadius: 999, minWidth: 36, justifyContent: 'center', ...getBucketCountBadgeSx('cold') }}
+                        />
+                      </TableCell>
+                      <TableCell align="center" sx={{ width: '13.6%' }}>
+                        <Chip
+                          size="small"
+                          label={item.newCount}
+                          sx={{ borderRadius: 999, minWidth: 36, justifyContent: 'center', ...getBucketCountBadgeSx('new') }}
+                        />
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                />
+              )}
+            </Box>
+          </Box>
+
           <Box className="admin-panel">
             <Box className="admin-panel__head">
               <Typography variant="h6" fontWeight={800}>

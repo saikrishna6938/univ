@@ -361,6 +361,7 @@ router.get('/leads-summary', async (_req, res) => {
             u.email AS userEmail,
             u.phone AS userPhone,
             lc.conversation_status AS conversationStatus,
+            lc.lead_type AS leadType,
             lc.looking_for AS lookingFor,
             lc.notes,
             lc.reminder_at AS reminderAt
@@ -399,7 +400,8 @@ router.get('/leads-summary', async (_req, res) => {
       userName: String(row.userName || ''),
       userEmail: row.userEmail ? String(row.userEmail) : null,
       userPhone: row.userPhone ? String(row.userPhone) : null,
-      conversationStatus: String(row.conversationStatus || 'new'),
+      conversationStatus: String(row.conversationStatus || 'Awaiting Response'),
+      leadType: String(row.leadType || 'WARM') as 'HOT' | 'WARM' | 'COLD',
       lookingFor: row.lookingFor ? String(row.lookingFor) : null,
       notes: row.notes ? String(row.notes) : null,
       reminderAt: row.reminderAt
@@ -830,7 +832,7 @@ router.get('/student-dashboard', async (req, res) => {
             lc.updated_at AS interestUpdatedAt
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
-     WHERE lc.conversation_status = 'interested'
+     WHERE lc.lead_type = 'HOT'
        AND lc.updated_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
        AND LOWER(COALESCE(u.role, 'student')) IN ('student', 'uploaded')
      ORDER BY lc.updated_at DESC

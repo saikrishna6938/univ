@@ -10,6 +10,8 @@ CREATE TABLE IF NOT EXISTS countries (
   id INT AUTO_INCREMENT PRIMARY KEY,
   name VARCHAR(255) NOT NULL,
   iso_code VARCHAR(10) NOT NULL UNIQUE,
+  currency_type VARCHAR(80) NULL,
+  currency_symbol VARCHAR(20) NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -129,16 +131,21 @@ CREATE TABLE IF NOT EXISTS lead_conversations (
   id INT AUTO_INCREMENT PRIMARY KEY,
   user_id INT NOT NULL UNIQUE,
   looking_for TEXT NULL,
-  conversation_status ENUM('new', 'contacted', 'follow_up', 'interested', 'not_interested', 'closed') DEFAULT 'new',
+  conversation_status VARCHAR(120) NOT NULL DEFAULT 'Awaiting Response',
+  lead_type VARCHAR(10) NOT NULL DEFAULT 'WARM',
   notes TEXT NULL,
   reminder_at DATETIME NULL,
   reminder_done TINYINT(1) DEFAULT 0,
   last_contacted_at DATETIME NULL,
+  assigned_employee_user_id INT NULL,
+  assigned_at DATETIME NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   CONSTRAINT fk_lead_conversation_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+  CONSTRAINT fk_lead_conversation_assigned_employee FOREIGN KEY (assigned_employee_user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_lead_conversation_reminder (reminder_at, reminder_done),
-  INDEX idx_lead_conversation_status (conversation_status)
+  INDEX idx_lead_conversation_status (conversation_status),
+  INDEX idx_lead_conversation_assigned_employee (assigned_employee_user_id)
 );
 
 CREATE TABLE IF NOT EXISTS applications (

@@ -9,15 +9,29 @@ type Props = {
   onToggleLike?: (program: Program) => void;
 };
 
-function toCurrency(value: unknown) {
+function toCurrency(value: unknown, program: Program) {
   if (value === null || value === undefined || value === '') return '-';
   const num = Number(value);
   if (!Number.isNaN(num)) {
-    return new Intl.NumberFormat('en-IN', {
-      style: 'currency',
-      currency: 'INR',
-      maximumFractionDigits: 0
-    }).format(num);
+    const currencyCode = String(program.country?.currencyType || program.currency || '').trim().toUpperCase();
+    if (currencyCode.length === 3) {
+      try {
+        return new Intl.NumberFormat('en', {
+          style: 'currency',
+          currency: currencyCode,
+          maximumFractionDigits: 0
+        }).format(num);
+      } catch {
+        // Fall through to symbol/plain formatting.
+      }
+    }
+
+    const currencySymbol = String(program.country?.currencySymbol || '').trim();
+    if (currencySymbol) {
+      return `${currencySymbol}${new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(num)}`;
+    }
+
+    return new Intl.NumberFormat('en', { maximumFractionDigits: 0 }).format(num);
   }
   return String(value);
 }
@@ -59,11 +73,11 @@ export default function ProgramCard({ program, applied = false, liked = false, o
       <div className="fc-card__quick-grid">
         <div className="fc-card__quick-item">
           <span>Tuition / Year</span>
-          <strong>{toCurrency(program.tuitionFeePerYear)}</strong>
+          <strong>{toCurrency(program.tuitionFeePerYear, program)}</strong>
         </div>
         <div className="fc-card__quick-item">
           <span>Application Fee</span>
-          <strong>{toCurrency(program.applicationFee)}</strong>
+          <strong>{toCurrency(program.applicationFee, program)}</strong>
         </div>
         <div className="fc-card__quick-item">
           <span>Intakes</span>

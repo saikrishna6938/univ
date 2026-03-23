@@ -18,6 +18,7 @@ import { fetchMyApplications, submitApplication } from "../../lib/api";
 const PAGE_SIZE = 10;
 const SHORTLIST_LEAD_KEY = "shortlist_lead";
 const LIKED_PROGRAMS_KEY_PREFIX = "liked_programs";
+type ShortlistMode = "apply" | "load_more";
 
 export default function FindCourseLayout() {
   const { selectedCountryId } = useCountry();
@@ -38,8 +39,10 @@ export default function FindCourseLayout() {
   const [error, setError] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(true);
   const [selectedProgram, setSelectedProgram] = useState<Program | null>(null);
+  const [pendingShortlistProgram, setPendingShortlistProgram] = useState<Program | null>(null);
   const [showInfo, setShowInfo] = useState(false);
   const [showShortlist, setShowShortlist] = useState(false);
+  const [shortlistMode, setShortlistMode] = useState<ShortlistMode>("apply");
   const [appliedProgramIds, setAppliedProgramIds] = useState<Set<string>>(new Set());
   const [likedPrograms, setLikedPrograms] = useState<Program[]>([]);
   const { user } = useAuth();
@@ -322,7 +325,14 @@ export default function FindCourseLayout() {
             ))}
           </div>
           <LoadMore
-            onClick={() => loadPrograms(false)}
+            onClick={() => {
+              if (user) {
+                loadPrograms(false);
+                return;
+              }
+              setShortlistMode("load_more");
+              setShowShortlist(true);
+            }}
             disabled={!hasMore || loading}
             loading={loading}
           />
@@ -364,6 +374,9 @@ export default function FindCourseLayout() {
                 .then(() => setShowInfo(true))
                 .catch((err) => setError(err.message));
             } else {
+              setPendingShortlistProgram(program);
+              setSelectedProgram(null);
+              setShortlistMode("apply");
               setShowShortlist(true);
             }
           }
@@ -371,20 +384,36 @@ export default function FindCourseLayout() {
       />
       <ShortlistModal
         open={showShortlist}
-        onClose={() => setShowShortlist(false)}
+        onClose={() => {
+          setShowShortlist(false);
+          setPendingShortlistProgram(null);
+          setShortlistMode("apply");
+        }}
         onSubmitted={(form) => {
           setStoredLead(form);
           sessionStorage.setItem(SHORTLIST_LEAD_KEY, JSON.stringify(form));
-          const program = selectedProgram;
+          setShowShortlist(false);
+          if (shortlistMode === "load_more") {
+            setPendingShortlistProgram(null);
+            loadPrograms(false)
+              .catch((err) => setError(err.message))
+              .finally(() => setShortlistMode("apply"));
+            return;
+          }
+          const program = pendingShortlistProgram;
           if (!program) {
             setShowInfo(true);
-            setShowShortlist(false);
+            setPendingShortlistProgram(null);
+            setShortlistMode("apply");
             return;
           }
           submitWithLead(program, form)
             .then(() => setShowInfo(true))
             .catch((err) => setError(err.message))
-            .finally(() => setShowShortlist(false));
+            .finally(() => {
+              setPendingShortlistProgram(null);
+              setShortlistMode("apply");
+            });
         }}
         initialValues={storedLead ?? undefined}
       />

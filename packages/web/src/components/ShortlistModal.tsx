@@ -353,11 +353,13 @@ export default function ShortlistModal({ open, onClose, onSubmitted, initialValu
                     required
                     fullWidth
                     label="When do you plan to start your studies?"
+                    type="date"
                     size="small"
                     value={form.start}
                     onChange={handleChange("start")}
                     error={!!errors.start}
                     helperText={errors.start}
+                    InputLabelProps={{ shrink: true }}
                     InputProps={{
                       startAdornment: (
                         <InputAdornment position="start">

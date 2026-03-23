@@ -67,6 +67,8 @@ type ProgramRow = RowDataPacket & {
   country_id: number | null;
   countryName?: string;
   countryIsoCode?: string;
+  countryCurrencyType?: string | null;
+  countryCurrencySymbol?: string | null;
   data?: string | null;
   created_at: string;
   updated_at: string;
@@ -135,7 +137,13 @@ function toProgram(row: ProgramRow) {
     ageGapUpto: row.age_gap_upto,
     noticeableAcademicGap: row.noticeable_academic_gap,
     country: row.country_id
-      ? { id: row.country_id, name: row.countryName, isoCode: row.countryIsoCode }
+      ? {
+          id: row.country_id,
+          name: row.countryName,
+          isoCode: row.countryIsoCode,
+          currencyType: row.countryCurrencyType,
+          currencySymbol: row.countryCurrencySymbol
+        }
       : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at
@@ -161,9 +169,33 @@ async function upsertCountry(input: any): Promise<number | null> {
 
   if (!iso && !name) return null;
 
+  const isoNorm = String(iso || '').trim().toUpperCase();
+  const currencyByIso: Record<string, { currencyType: string; currencySymbol: string }> = {
+    AU: { currencyType: 'AUD', currencySymbol: '$' },
+    CA: { currencyType: 'CAD', currencySymbol: '$' },
+    CH: { currencyType: 'CHF', currencySymbol: 'CHF' },
+    DE: { currencyType: 'EUR', currencySymbol: '€' },
+    ES: { currencyType: 'EUR', currencySymbol: '€' },
+    FR: { currencyType: 'EUR', currencySymbol: '€' },
+    GB: { currencyType: 'GBP', currencySymbol: '£' },
+    IE: { currencyType: 'EUR', currencySymbol: '€' },
+    IT: { currencyType: 'EUR', currencySymbol: '€' },
+    NL: { currencyType: 'EUR', currencySymbol: '€' },
+    NZ: { currencyType: 'NZD', currencySymbol: '$' },
+    SE: { currencyType: 'SEK', currencySymbol: 'kr' },
+    SG: { currencyType: 'SGD', currencySymbol: '$' },
+    AE: { currencyType: 'AED', currencySymbol: 'AED' },
+    US: { currencyType: 'USD', currencySymbol: '$' }
+  };
+  const mappedCurrency = currencyByIso[isoNorm];
   const [result] = await pool.query<ResultSetHeader>(
-    'INSERT INTO countries (name, iso_code) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)',
-    [name || iso || 'Unknown', iso || name || 'UNK']
+    `INSERT INTO countries (name, iso_code, currency_type, currency_symbol)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       name = VALUES(name),
+       currency_type = COALESCE(countries.currency_type, VALUES(currency_type)),
+       currency_symbol = COALESCE(countries.currency_symbol, VALUES(currency_symbol))`,
+    [name || iso || 'Unknown', iso || name || 'UNK', mappedCurrency?.currencyType || null, mappedCurrency?.currencySymbol || null]
   );
   if ((result as ResultSetHeader).insertId) return (result as ResultSetHeader).insertId;
   return findCountryId(iso, name);
@@ -226,7 +258,7 @@ router.get('/', async (req, res) => {
   }
 
   let sql =
-    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
+    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode, c.currency_type AS countryCurrencyType, c.currency_symbol AS countryCurrencySymbol FROM programs p ' +
     'LEFT JOIN countries c ON p.country_id = c.id';
 
   if (filters.length) {
@@ -285,7 +317,7 @@ router.get('/paginated', async (req, res) => {
   }
 
   let sql =
-    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
+    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode, c.currency_type AS countryCurrencyType, c.currency_symbol AS countryCurrencySymbol FROM programs p ' +
     'LEFT JOIN countries c ON p.country_id = c.id';
 
   if (filters.length) {
@@ -498,7 +530,7 @@ router.post('/', async (req, res) => {
     (await findProgramId(body.programName as string, body.universityName as string));
 
   const [rows] = await pool.query<ProgramRow[]>(
-    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
+    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode, c.currency_type AS countryCurrencyType, c.currency_symbol AS countryCurrencySymbol FROM programs p ' +
       'LEFT JOIN countries c ON p.country_id = c.id WHERE p.id = ? LIMIT 1',
     [id]
   );
@@ -580,7 +612,7 @@ router.patch('/:id', async (req, res) => {
   );
 
   const [rows] = await pool.query<ProgramRow[]>(
-    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode FROM programs p ' +
+    'SELECT p.*, c.name AS countryName, c.iso_code AS countryIsoCode, c.currency_type AS countryCurrencyType, c.currency_symbol AS countryCurrencySymbol FROM programs p ' +
       'LEFT JOIN countries c ON p.country_id = c.id WHERE p.id = ? LIMIT 1',
     [id]
   );

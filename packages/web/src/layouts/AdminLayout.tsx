@@ -2,6 +2,7 @@ import AppsRounded from '@mui/icons-material/AppsRounded';
 import ChecklistRounded from '@mui/icons-material/ChecklistRounded';
 import DashboardRounded from '@mui/icons-material/DashboardRounded';
 import GroupRounded from '@mui/icons-material/GroupRounded';
+import InboxRounded from '@mui/icons-material/InboxRounded';
 import LogoutRounded from '@mui/icons-material/LogoutRounded';
 import MenuRounded from '@mui/icons-material/MenuRounded';
 import MenuOpenRounded from '@mui/icons-material/MenuOpenRounded';
@@ -50,6 +51,13 @@ export default function AdminLayout() {
         to: '/admin/users',
         icon: <GroupRounded fontSize="small" />,
         roles: ['admin', 'manager', 'employee']
+      },
+      {
+        label: 'My Bucket',
+        to: '/admin/users?view=my-bucket',
+        icon: <InboxRounded fontSize="small" />,
+        nested: true,
+        roles: ['employee']
       },
       {
         label: 'Tasks',
@@ -147,7 +155,10 @@ export default function AdminLayout() {
       <Divider sx={{ borderColor: 'rgba(148, 163, 184, 0.2)' }} />
       <List sx={{ p: 1.5 }}>
         {visibleNavItems.map((item) => {
-          const selected = location.pathname === item.to || location.pathname.startsWith(`${item.to}/`);
+          const selected =
+            location.pathname === item.to ||
+            location.pathname.startsWith(`${item.to}/`) ||
+            `${location.pathname}${location.search}` === item.to;
           return (
             <ListItemButton
               key={item.to}

@@ -16,14 +16,37 @@ async function runSqlFile(filePath: string) {
 }
 
 async function getCountryId(isoCode: string, name: string): Promise<number> {
+  const currencyByIso: Record<string, { currencyType: string; currencySymbol: string }> = {
+    AU: { currencyType: 'AUD', currencySymbol: '$' },
+    CA: { currencyType: 'CAD', currencySymbol: '$' },
+    CH: { currencyType: 'CHF', currencySymbol: 'CHF' },
+    DE: { currencyType: 'EUR', currencySymbol: '€' },
+    ES: { currencyType: 'EUR', currencySymbol: '€' },
+    FR: { currencyType: 'EUR', currencySymbol: '€' },
+    GB: { currencyType: 'GBP', currencySymbol: '£' },
+    IE: { currencyType: 'EUR', currencySymbol: '€' },
+    IT: { currencyType: 'EUR', currencySymbol: '€' },
+    NL: { currencyType: 'EUR', currencySymbol: '€' },
+    NZ: { currencyType: 'NZD', currencySymbol: '$' },
+    SE: { currencyType: 'SEK', currencySymbol: 'kr' },
+    SG: { currencyType: 'SGD', currencySymbol: '$' },
+    AE: { currencyType: 'AED', currencySymbol: 'AED' },
+    US: { currencyType: 'USD', currencySymbol: '$' }
+  };
+  const mappedCurrency = currencyByIso[String(isoCode || '').trim().toUpperCase()];
   const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM countries WHERE iso_code = ? LIMIT 1', [
     isoCode
   ]);
   if (existing.length) return Number(existing[0].id);
 
   const [result] = await pool.query<ResultSetHeader>(
-    'INSERT INTO countries (name, iso_code) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)',
-    [name, isoCode]
+    `INSERT INTO countries (name, iso_code, currency_type, currency_symbol)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       name = VALUES(name),
+       currency_type = COALESCE(countries.currency_type, VALUES(currency_type)),
+       currency_symbol = COALESCE(countries.currency_symbol, VALUES(currency_symbol))`,
+    [name, isoCode, mappedCurrency?.currencyType || null, mappedCurrency?.currencySymbol || null]
   );
   if ((result as ResultSetHeader).insertId) return (result as ResultSetHeader).insertId;
 

@@ -3,6 +3,8 @@ export type Country = {
   _id?: string;
   name: string;
   isoCode: string;
+  currencyType?: string | null;
+  currencySymbol?: string | null;
 };
 
 export type Program = {
@@ -16,6 +18,7 @@ export type Program = {
   levelOfStudy?: string;
   concentration?: string;
   languageOfStudy?: string;
+  currency?: string;
   tuitionFeePerYear?: number;
   applicationFee?: number;
   intakes?: string;
@@ -49,19 +52,57 @@ export type AdminListUser = LeadUser & {
   countryIds?: number[];
 };
 
-export type LeadConversationStatus = 'new' | 'contacted' | 'follow_up' | 'interested' | 'not_interested' | 'closed';
+export type LeadConversationStatus =
+  | 'Very Interested'
+  | 'Interested – Call Back'
+  | 'Interested – Send Details'
+  | 'Ready for Application'
+  | 'Requested Meeting'
+  | 'Referred to Friend'
+  | 'Need More Time'
+  | 'Comparing Options'
+  | 'Discussing with Family / Partner'
+  | 'Financial Planning in Process'
+  | 'Waiting for Results (IELTS / Exams / Documents)'
+  | 'Follow Up Later'
+  | 'Interested for Next Intake'
+  | 'Not Interested'
+  | 'Budget Issue'
+  | 'Going with Competitor'
+  | 'Change of Plans'
+  | 'Course Not Suitable'
+  | 'Country Not Preferred'
+  | 'Already Enrolled Elsewhere'
+  | 'Fake / Invalid Lead'
+  | 'Call Not Answered'
+  | 'Switched Off'
+  | 'Number Busy'
+  | 'Wrong Number'
+  | 'WhatsApp Sent'
+  | 'Left Voicemail'
+  | 'Awaiting Response'
+  | 'Closed';
+
+export type LeadType = 'HOT' | 'WARM' | 'COLD';
 
 export type LeadConversation = {
   id: number;
   userId: number;
   lookingFor?: string | null;
   conversationStatus: LeadConversationStatus;
+  leadType: LeadType;
   notes?: string | null;
   reminderAt?: string | null;
   reminderDone: boolean;
   lastContactedAt?: string | null;
+  assignedEmployeeUserId?: number | null;
+  assignedAt?: string | null;
   createdAt: string;
   updatedAt: string;
+  assignedEmployee?: {
+    id: number;
+    name: string;
+  };
   user?: {
     name: string;
     email?: string | null;
@@ -77,6 +118,7 @@ export type TodayReminder = {
   userEmail?: string | null;
   userPhone?: string | null;
   conversationStatus: LeadConversationStatus;
+  leadType: LeadType;
   lookingFor?: string | null;
   notes?: string | null;
   reminderAt: string;
@@ -927,12 +969,32 @@ export async function upsertLeadConversation(
     reminderAt: string | null;
     reminderDone: boolean;
     lastContactedAt: string | null;
+    actingAdminUserId: number | null;
+    actingAdminRole: 'admin' | 'manager' | 'employee';
   }>
 ): Promise<LeadConversation> {
   const res = await fetch(`${API_URL}/api/lead-conversations/${userId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload)
+  });
+  return handleResponse<LeadConversation>(res);
+}
+
+export async function takeLeadConversation(userId: number, employeeUserId: number): Promise<LeadConversation> {
+  const res = await fetch(`${API_URL}/api/lead-conversations/${userId}/take`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employeeUserId })
+  });
+  return handleResponse<LeadConversation>(res);
+}
+
+export async function releaseLeadConversation(userId: number, employeeUserId: number): Promise<LeadConversation> {
+  const res = await fetch(`${API_URL}/api/lead-conversations/${userId}/release`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ employeeUserId })
   });
   return handleResponse<LeadConversation>(res);
 }

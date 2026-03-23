@@ -2,8 +2,11 @@ import GroupRounded from '@mui/icons-material/GroupRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
 import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined';
+import MoveDownOutlined from '@mui/icons-material/MoveDownOutlined';
+import PanToolAltOutlined from '@mui/icons-material/PanToolAltOutlined';
 import {
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -26,9 +29,10 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import type { AdminListUser, Country, LeadConversation, LeadConversationStatus } from '../../lib/api';
-import { bulkCreateAdminUsers, createAdminUser, deleteAdminUser, fetchAdminUsers, fetchCountries, fetchLeadConversations, updateAdminUser, upsertLeadConversation } from '../../lib/api';
+import { Fragment, type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
+import type { AdminListUser, Country, LeadConversation, LeadConversationStatus, LeadType } from '../../lib/api';
+import { bulkCreateAdminUsers, createAdminUser, deleteAdminUser, fetchAdminUsers, fetchCountries, fetchLeadConversations, releaseLeadConversation, takeLeadConversation, updateAdminUser, upsertLeadConversation } from '../../lib/api';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import AdminDataTable from '../../components/admin/AdminDataTable';
 import './admin.css';
@@ -60,13 +64,89 @@ type ConversationForm = {
 };
 
 const STATUS_OPTIONS: Array<{ value: LeadConversationStatus; label: string }> = [
-  { value: 'new', label: 'New' },
-  { value: 'contacted', label: 'Contacted' },
-  { value: 'follow_up', label: 'Follow Up' },
-  { value: 'interested', label: 'Interested' },
-  { value: 'not_interested', label: 'Not Interested' },
-  { value: 'closed', label: 'Closed' }
+  { value: 'Very Interested', label: 'Very Interested' },
+  { value: 'Interested – Call Back', label: 'Interested – Call Back' },
+  { value: 'Interested – Send Details', label: 'Interested – Send Details' },
+  { value: 'Ready for Application', label: 'Ready for Application' },
+  { value: 'Requested Meeting', label: 'Requested Meeting' },
+  { value: 'Referred to Friend', label: 'Referred to Friend' },
+  { value: 'Need More Time', label: 'Need More Time' },
+  { value: 'Comparing Options', label: 'Comparing Options' },
+  { value: 'Discussing with Family / Partner', label: 'Discussing with Family / Partner' },
+  { value: 'Financial Planning in Process', label: 'Financial Planning in Process' },
+  { value: 'Waiting for Results (IELTS / Exams / Documents)', label: 'Waiting for Results (IELTS / Exams / Documents)' },
+  { value: 'Follow Up Later', label: 'Follow Up Later' },
+  { value: 'Interested for Next Intake', label: 'Interested for Next Intake' },
+  { value: 'Not Interested', label: 'Not Interested' },
+  { value: 'Budget Issue', label: 'Budget Issue' },
+  { value: 'Going with Competitor', label: 'Going with Competitor' },
+  { value: 'Change of Plans', label: 'Change of Plans' },
+  { value: 'Course Not Suitable', label: 'Course Not Suitable' },
+  { value: 'Country Not Preferred', label: 'Country Not Preferred' },
+  { value: 'Already Enrolled Elsewhere', label: 'Already Enrolled Elsewhere' },
+  { value: 'Fake / Invalid Lead', label: 'Fake / Invalid Lead' },
+  { value: 'Call Not Answered', label: 'Call Not Answered' },
+  { value: 'Switched Off', label: 'Switched Off' },
+  { value: 'Number Busy', label: 'Number Busy' },
+  { value: 'Wrong Number', label: 'Wrong Number' },
+  { value: 'WhatsApp Sent', label: 'WhatsApp Sent' },
+  { value: 'Left Voicemail', label: 'Left Voicemail' },
+  { value: 'Awaiting Response', label: 'Awaiting Response' },
+  { value: 'Closed', label: 'Closed' }
 ];
+
+const HOT_STATUSES = new Set<LeadConversationStatus>([
+  'Very Interested',
+  'Interested – Call Back',
+  'Interested – Send Details',
+  'Ready for Application',
+  'Requested Meeting',
+  'Referred to Friend'
+]);
+
+const WARM_STATUSES = new Set<LeadConversationStatus>([
+  'Need More Time',
+  'Comparing Options',
+  'Discussing with Family / Partner',
+  'Financial Planning in Process',
+  'Waiting for Results (IELTS / Exams / Documents)',
+  'Follow Up Later',
+  'Interested for Next Intake',
+  'Call Not Answered',
+  'Switched Off',
+  'Number Busy',
+  'WhatsApp Sent',
+  'Left Voicemail',
+  'Awaiting Response'
+]);
+
+function getLeadTypeFromStatus(status: LeadConversationStatus): LeadType {
+  if (HOT_STATUSES.has(status)) return 'HOT';
+  if (WARM_STATUSES.has(status)) return 'WARM';
+  return 'COLD';
+}
+
+function getLeadTypeColor(type?: LeadType): string {
+  if (type === 'HOT') return '#16a34a';
+  if (type === 'WARM') return '#f59e0b';
+  return '#64748b';
+}
+
+function getStatusChipSx(type?: LeadType) {
+  const background = type === 'HOT' ? '#dcfce7' : type === 'WARM' ? '#fef3c7' : '#e2e8f0';
+  const foreground = type === 'HOT' ? '#166534' : type === 'WARM' ? '#92400e' : '#334155';
+  const border = type === 'HOT' ? '#86efac' : type === 'WARM' ? '#fcd34d' : '#cbd5e1';
+
+  return {
+    bgcolor: background,
+    color: foreground,
+    border: `1px solid ${border}`,
+    fontWeight: 700,
+    '& .MuiChip-label': {
+      px: 1.1
+    }
+  };
+}
 
 function toInputDateTime(value?: string | null): string {
   if (!value) return '';
@@ -106,7 +186,9 @@ function parseCsvLine(line: string): string[] {
 
 export default function AdminUsersPage() {
   const { adminUser } = useAdminAuth();
+  const [searchParams] = useSearchParams();
   const isEmployeeSession = adminUser?.role === 'employee';
+  const isMyBucketView = searchParams.get('view') === 'my-bucket';
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [users, setUsers] = useState<AdminListUser[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
@@ -115,8 +197,11 @@ export default function AdminUsersPage() {
   const [saving, setSaving] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
   const [uploadingUsers, setUploadingUsers] = useState(false);
+  const [takingUserId, setTakingUserId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sort, setSort] = useState<SortState>({ field: 'createdAt', direction: 'desc' });
+  const [statusFilterValue, setStatusFilterValue] = useState<LeadConversationStatus | 'all'>('all');
+  const [leadTypeFilterValue, setLeadTypeFilterValue] = useState<'all' | 'HOT' | 'WARM' | 'COLD' | 'NEW'>('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchText, setSearchText] = useState('');
@@ -145,12 +230,14 @@ export default function AdminUsersPage() {
   });
   const [form, setForm] = useState<ConversationForm>({
     lookingFor: '',
-    conversationStatus: 'new',
+    conversationStatus: 'Awaiting Response',
     notes: '',
     reminderAt: '',
     reminderDone: false,
     lastContactedAt: ''
   });
+  const isActiveBucketLead = (conversation?: LeadConversation) =>
+    Boolean(conversation?.assignedEmployeeUserId) && conversation?.conversationStatus !== 'Closed';
 
   useEffect(() => {
     let mounted = true;
@@ -233,7 +320,7 @@ export default function AdminUsersPage() {
       if (textCompare !== 0) return textCompare * direction;
       return 0;
     });
-  }, [users, sort, conversationsByUserId]);
+  }, [sort, users]);
 
   const visibleUsers = useMemo(() => {
     const sessionRole = String(adminUser?.role || '').toLowerCase();
@@ -257,14 +344,49 @@ export default function AdminUsersPage() {
 
   const filteredUsers = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    if (!query) return visibleUsers;
-    return visibleUsers.filter((user) => {
+    const scopedUsers =
+      isEmployeeSession && isMyBucketView
+        ? visibleUsers.filter((user) => {
+            const conversation = conversationsByUserId[user.id];
+            return conversation?.assignedEmployeeUserId === adminUser?.id && isActiveBucketLead(conversation);
+          })
+        : visibleUsers;
+
+    const activeUsers = statusFilterValue === 'Closed'
+      ? scopedUsers
+      : scopedUsers.filter((user) => conversationsByUserId[user.id]?.conversationStatus !== 'Closed');
+
+    const statusFilteredUsers = activeUsers.filter((user) => {
+      const conversation = conversationsByUserId[user.id];
+      if (statusFilterValue !== 'all') {
+        return conversation?.conversationStatus === statusFilterValue;
+      }
+      if (leadTypeFilterValue !== 'all') {
+        if (leadTypeFilterValue === 'NEW') {
+          return conversation?.conversationStatus === 'Awaiting Response';
+        }
+        return conversation?.leadType === leadTypeFilterValue;
+      }
+      return true;
+    });
+
+    if (!query) return statusFilteredUsers;
+    return statusFilteredUsers.filter((user) => {
       const name = String(user.name || '').toLowerCase();
       const email = String(user.email || '').toLowerCase();
       const phone = String(user.phone || '').toLowerCase();
       return name.includes(query) || email.includes(query) || phone.includes(query);
     });
-  }, [searchText, visibleUsers]);
+  }, [
+    adminUser?.id,
+    conversationsByUserId,
+    isEmployeeSession,
+    isMyBucketView,
+    leadTypeFilterValue,
+    searchText,
+    statusFilterValue,
+    visibleUsers
+  ]);
 
   useEffect(() => {
     const maxPage = Math.max(0, Math.ceil(filteredUsers.length / rowsPerPage) - 1);
@@ -290,10 +412,21 @@ export default function AdminUsersPage() {
 
   function openConversationEditor(user: AdminListUser) {
     const conversation = conversationsByUserId[user.id];
+    const takenByOtherEmployee =
+      isEmployeeSession &&
+      conversation?.assignedEmployeeUserId &&
+      adminUser?.id &&
+      conversation.assignedEmployeeUserId !== adminUser.id;
+
+    if (takenByOtherEmployee) {
+      setError(`${conversation.assignedEmployee?.name || 'Another employee'} already took this lead`);
+      return;
+    }
+
     setEditingUser(user);
     setForm({
       lookingFor: conversation?.lookingFor || '',
-      conversationStatus: conversation?.conversationStatus || 'new',
+      conversationStatus: conversation?.conversationStatus || 'Awaiting Response',
       notes: conversation?.notes || '',
       reminderAt: toInputDateTime(conversation?.reminderAt),
       reminderDone: conversation?.reminderDone || false,
@@ -327,7 +460,9 @@ export default function AdminUsersPage() {
         notes: form.notes.trim() || null,
         reminderAt: form.reminderAt ? new Date(form.reminderAt).toISOString() : null,
         reminderDone: form.reminderDone,
-        lastContactedAt: form.lastContactedAt ? new Date(form.lastContactedAt).toISOString() : null
+        lastContactedAt: form.lastContactedAt ? new Date(form.lastContactedAt).toISOString() : null,
+        actingAdminUserId: adminUser?.id ?? null,
+        actingAdminRole: adminUser?.role || 'employee'
       });
 
       setConversationsByUserId((prev) => ({
@@ -339,6 +474,42 @@ export default function AdminUsersPage() {
       setError(err instanceof Error ? err.message : 'Failed to save conversation');
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function takeLead(user: AdminListUser) {
+    if (!adminUser?.id || !isEmployeeSession) return;
+
+    setTakingUserId(user.id);
+    try {
+      const saved = await takeLeadConversation(user.id, adminUser.id);
+      setConversationsByUserId((prev) => ({
+        ...prev,
+        [saved.userId]: saved
+      }));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to take lead');
+    } finally {
+      setTakingUserId(null);
+    }
+  }
+
+  async function releaseLead(user: AdminListUser) {
+    if (!adminUser?.id || !isEmployeeSession) return;
+
+    setTakingUserId(user.id);
+    try {
+      const saved = await releaseLeadConversation(user.id, adminUser.id);
+      setConversationsByUserId((prev) => ({
+        ...prev,
+        [saved.userId]: saved
+      }));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove lead from your bucket');
+    } finally {
+      setTakingUserId(null);
     }
   }
 
@@ -486,7 +657,7 @@ export default function AdminUsersPage() {
         <Box className="admin-panel__head">
           <Typography variant="h6" fontWeight={800} sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
             <GroupRounded sx={{ fontSize: 18, color: '#0369a1' }} />
-            Users
+            {isMyBucketView ? 'My Bucket' : 'Users'}
           </Typography>
           <Stack direction="row" spacing={1}>
             <TextField
@@ -495,6 +666,45 @@ export default function AdminUsersPage() {
               value={searchText}
               onChange={(event) => setSearchText(event.target.value)}
             />
+            <FormControl size="small" sx={{ minWidth: 210 }}>
+              <InputLabel id="users-status-filter-label">Status Filter</InputLabel>
+              <Select
+                labelId="users-status-filter-label"
+                value={statusFilterValue}
+                label="Status Filter"
+                onChange={(event) => {
+                  setStatusFilterValue(event.target.value as LeadConversationStatus | 'all');
+                  setLeadTypeFilterValue('all');
+                  setPage(0);
+                }}
+              >
+                <MenuItem value="all">All Statuses</MenuItem>
+                {STATUS_OPTIONS.map((option) => (
+                  <MenuItem key={`status-filter-${option.value}`} value={option.value}>
+                    {option.label}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl size="small" sx={{ minWidth: 170 }}>
+              <InputLabel id="users-type-filter-label">Type Filter</InputLabel>
+              <Select
+                labelId="users-type-filter-label"
+                value={leadTypeFilterValue}
+                label="Type Filter"
+                onChange={(event) => {
+                  setLeadTypeFilterValue(event.target.value as 'all' | 'HOT' | 'WARM' | 'COLD' | 'NEW');
+                  setStatusFilterValue('all');
+                  setPage(0);
+                }}
+              >
+                <MenuItem value="all">All Types</MenuItem>
+                <MenuItem value="HOT">Hot</MenuItem>
+                <MenuItem value="WARM">Warm</MenuItem>
+                <MenuItem value="COLD">Cold</MenuItem>
+                <MenuItem value="NEW">New</MenuItem>
+              </Select>
+            </FormControl>
             <Chip label={loading ? 'Loading...' : `${filteredUsers.length} users`} color="info" variant="outlined" />
             {adminUser?.role === 'admin' || adminUser?.role === 'manager' ? (
               <>
@@ -528,22 +738,17 @@ export default function AdminUsersPage() {
             </Typography>
           ) : null}
           <AdminDataTable
-            tableMinWidth={1680}
+            tableMinWidth={1120}
             tableLayout="auto"
             headerSx={{
               '& .MuiTableCell-root': {
-                maxWidth: 150,
                 whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                fontSize: '0.78rem'
               }
             }}
             bodySx={{
               '& .MuiTableCell-root': {
-                maxWidth: 150,
-                whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                verticalAlign: 'top'
               }
             }}
             maxBodyHeight={{
@@ -557,15 +762,10 @@ export default function AdminUsersPage() {
             headerRow={
               <TableRow>
                 <TableCell>{renderSortHeader('name', 'Name')}</TableCell>
-                <TableCell sx={{ width: 'auto' }}>{renderSortHeader('email', 'Email')}</TableCell>
-                <TableCell>{renderSortHeader('phone', 'Phone')}</TableCell>
-                <TableCell>{renderSortHeader('city', 'City')}</TableCell>
-                <TableCell>{renderSortHeader('role', 'Roles')}</TableCell>
                 <TableCell>{renderSortHeader('lookingFor', 'Looking For')}</TableCell>
                 <TableCell>{renderSortHeader('conversationStatus', 'Status')}</TableCell>
-                <TableCell>{renderSortHeader('reminderAt', 'Reminder')}</TableCell>
+                <TableCell>Bucket</TableCell>
                 <TableCell>{renderSortHeader('createdAt', 'Created')}</TableCell>
-                <TableCell>{renderSortHeader('lastLoginAt', 'Last Login')}</TableCell>
                 <TableCell align="right">Action</TableCell>
               </TableRow>
             }
@@ -573,60 +773,170 @@ export default function AdminUsersPage() {
               loading
                 ? Array.from({ length: 10 }).map((_, idx) => (
                     <TableRow key={`user-skeleton-${idx}`}>
-                      <TableCell colSpan={11}>
+                      <TableCell colSpan={6}>
                         <Skeleton height={30} />
                       </TableCell>
                     </TableRow>
                   ))
                 : pagedUsers.map((user) => {
                     const conversation = conversationsByUserId[user.id];
+                    const isTaken = Boolean(conversation?.assignedEmployeeUserId);
+                    const isTakenByCurrentEmployee =
+                      Boolean(adminUser?.id) && conversation?.assignedEmployeeUserId === adminUser?.id;
+                    const isTakenByOtherEmployee = isEmployeeSession && isTaken && !isTakenByCurrentEmployee;
+                    const canTakeLead = isEmployeeSession && (!isTaken || isTakenByCurrentEmployee);
+                    const canManageConversation = isMyBucketView && (!isEmployeeSession || isTakenByCurrentEmployee);
                     return (
-                      <TableRow hover key={user.id}>
-                        <TableCell>
-                          <Typography variant="body2" fontWeight={700}>
-                            {user.name}
-                          </Typography>
-                        </TableCell>
-                        <TableCell sx={{ width: 'auto' }}>{user.email || '-'}</TableCell>
-                        <TableCell>{user.phone || '-'}</TableCell>
-                        <TableCell>{user.city || '-'}</TableCell>
-                        <TableCell>{user.roles && user.roles.length ? user.roles.join(', ') : user.role}</TableCell>
-                        <TableCell>{conversation?.lookingFor || '-'}</TableCell>
-                        <TableCell>
-                          <Chip
-                            size="small"
-                            label={conversation?.conversationStatus || 'new'}
-                            variant="outlined"
-                            color={conversation?.conversationStatus === 'interested' ? 'success' : 'default'}
-                          />
-                        </TableCell>
-                        <TableCell>{conversation?.reminderAt ? new Date(conversation.reminderAt).toLocaleString() : '-'}</TableCell>
-                        <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
-                        <TableCell>{user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}</TableCell>
-                        <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            <Tooltip title="Manage lead conversation">
-                              <IconButton size="small" color="primary" onClick={() => openConversationEditor(user)}>
-                                <ManageAccountsOutlined fontSize="small" />
-                              </IconButton>
-                            </Tooltip>
-                            {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
-                              <>
-                                <Tooltip title="Edit user">
-                                  <IconButton size="small" color="primary" onClick={() => openUserEditor(user)}>
-                                    <EditOutlined fontSize="small" />
-                                  </IconButton>
+                      <Fragment key={user.id}>
+                        <TableRow hover key={`main-${user.id}`} className="admin-user-row">
+                          <TableCell>
+                            <Typography variant="body2" fontWeight={700}>
+                              {user.name}
+                            </Typography>
+                          </TableCell>
+                          <TableCell sx={{ minWidth: 220 }}>{conversation?.lookingFor || '-'}</TableCell>
+                          <TableCell>
+                            <Stack direction="row" spacing={1} alignItems="center">
+                              <Chip
+                                size="small"
+                                label={conversation?.conversationStatus || 'Awaiting Response'}
+                                variant="filled"
+                                sx={getStatusChipSx(conversation?.leadType)}
+                              />
+                              <Box
+                                sx={{
+                                  width: 10,
+                                  height: 10,
+                                  borderRadius: '50%',
+                                  bgcolor: getLeadTypeColor(conversation?.leadType),
+                                  flexShrink: 0
+                                }}
+                              />
+                            </Stack>
+                          </TableCell>
+                          <TableCell>
+                            {conversation?.assignedEmployee ? (
+                              <Chip
+                                size="small"
+                                label={
+                                  isTakenByCurrentEmployee
+                                    ? `Taken by you`
+                                    : `Taken by ${conversation.assignedEmployee.name}`
+                                }
+                                color={isTakenByCurrentEmployee ? 'success' : 'warning'}
+                                variant={isTakenByCurrentEmployee ? 'filled' : 'outlined'}
+                              />
+                            ) : (
+                              '-'
+                            )}
+                          </TableCell>
+                          <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
+                          <TableCell align="right">
+                            <Stack direction="row" spacing={1} justifyContent="flex-end">
+                              {isEmployeeSession ? (
+                                <Tooltip
+                                  title={
+                                    isTakenByOtherEmployee
+                                      ? `${conversation?.assignedEmployee?.name || 'Another employee'} already took this lead`
+                                      : isTakenByCurrentEmployee
+                                        ? 'Remove from my bucket'
+                                        : 'Take this lead'
+                                  }
+                                >
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color={isTakenByCurrentEmployee ? 'success' : 'primary'}
+                                      onClick={() => (isTakenByCurrentEmployee ? releaseLead(user) : takeLead(user))}
+                                      disabled={!canTakeLead || takingUserId === user.id}
+                                    >
+                                      {isTakenByCurrentEmployee ? (
+                                        <MoveDownOutlined fontSize="small" />
+                                      ) : (
+                                        <PanToolAltOutlined fontSize="small" />
+                                      )}
+                                    </IconButton>
+                                  </span>
                                 </Tooltip>
-                                <Tooltip title="Delete user">
-                                  <IconButton size="small" color="error" onClick={() => removeUser(user)}>
-                                    <DeleteOutlineRounded fontSize="small" />
-                                  </IconButton>
+                              ) : null}
+                              {isMyBucketView ? (
+                                <Tooltip title="Manage lead conversation">
+                                  <span>
+                                    <IconButton
+                                      size="small"
+                                      color="primary"
+                                      onClick={() => openConversationEditor(user)}
+                                      disabled={!canManageConversation}
+                                    >
+                                      <ManageAccountsOutlined fontSize="small" />
+                                    </IconButton>
+                                  </span>
                                 </Tooltip>
-                              </>
-                            ) : null}
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
+                              ) : null}
+                              {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
+                                <>
+                                  <Tooltip title="Edit user">
+                                    <IconButton size="small" color="primary" onClick={() => openUserEditor(user)}>
+                                      <EditOutlined fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                  <Tooltip title="Delete user">
+                                    <IconButton size="small" color="error" onClick={() => removeUser(user)}>
+                                      <DeleteOutlineRounded fontSize="small" />
+                                    </IconButton>
+                                  </Tooltip>
+                                </>
+                              ) : null}
+                            </Stack>
+                          </TableCell>
+                        </TableRow>
+                        <TableRow key={`sub-${user.id}`} className="admin-user-subrow">
+                          <TableCell colSpan={6} sx={{ py: 1.25, borderBottomColor: '#cbd5e1' }}>
+                            <Box className="admin-user-subrow__grid">
+                              <Box className="admin-user-subrow__item">
+                                <Typography variant="caption" className="admin-user-subrow__label">
+                                  Email
+                                </Typography>
+                                <Typography variant="body2">{user.email || '-'}</Typography>
+                              </Box>
+                              <Box className="admin-user-subrow__item">
+                                <Typography variant="caption" className="admin-user-subrow__label">
+                                  Phone
+                                </Typography>
+                                <Typography variant="body2">{user.phone || '-'}</Typography>
+                              </Box>
+                              <Box className="admin-user-subrow__item">
+                                <Typography variant="caption" className="admin-user-subrow__label">
+                                  City
+                                </Typography>
+                                <Typography variant="body2">{user.city || '-'}</Typography>
+                              </Box>
+                              <Box className="admin-user-subrow__item">
+                                <Typography variant="caption" className="admin-user-subrow__label">
+                                  Roles
+                                </Typography>
+                                <Typography variant="body2">{user.roles && user.roles.length ? user.roles.join(', ') : user.role}</Typography>
+                              </Box>
+                              <Box className="admin-user-subrow__item">
+                                <Typography variant="caption" className="admin-user-subrow__label">
+                                  Reminder
+                                </Typography>
+                                <Typography variant="body2">
+                                  {conversation?.reminderAt ? new Date(conversation.reminderAt).toLocaleString() : '-'}
+                                </Typography>
+                              </Box>
+                              <Box className="admin-user-subrow__item">
+                                <Typography variant="caption" className="admin-user-subrow__label">
+                                  Last Login
+                                </Typography>
+                                <Typography variant="body2">
+                                  {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}
+                                </Typography>
+                              </Box>
+                            </Box>
+                          </TableCell>
+                        </TableRow>
+                      </Fragment>
                     );
                   })
             }
@@ -665,23 +975,37 @@ export default function AdminUsersPage() {
               fullWidth
             />
 
-            <FormControl fullWidth>
-              <InputLabel id="conversation-status-label">Conversation Status</InputLabel>
-              <Select
-                labelId="conversation-status-label"
-                value={form.conversationStatus}
-                label="Conversation Status"
-                onChange={(event) =>
-                  setForm((prev) => ({ ...prev, conversationStatus: event.target.value as LeadConversationStatus }))
-                }
-              >
-                {STATUS_OPTIONS.map((option) => (
-                  <MenuItem key={option.value} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
+            <Autocomplete
+              fullWidth
+              options={STATUS_OPTIONS}
+              value={STATUS_OPTIONS.find((option) => option.value === form.conversationStatus) || null}
+              onChange={(_event, option) => {
+                if (!option) return;
+                setForm((prev) => ({ ...prev, conversationStatus: option.value }));
+              }}
+              getOptionLabel={(option) => option.label}
+              isOptionEqualToValue={(option, value) => option.value === value.value}
+              renderInput={(params) => <TextField {...(params as any)} label="Conversation Status" placeholder="Type to filter statuses" />}
+            />
+
+            <Box>
+              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 700 }}>
+                Lead Type
+              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Box
+                  sx={{
+                    width: 14,
+                    height: 14,
+                    borderRadius: '50%',
+                    bgcolor: getLeadTypeColor(getLeadTypeFromStatus(form.conversationStatus))
+                  }}
+                />
+                <Typography variant="body2" color="text.secondary">
+                  Auto-set from selected status
+                </Typography>
+              </Box>
+            </Box>
 
             <TextField
               label="Conversation notes"

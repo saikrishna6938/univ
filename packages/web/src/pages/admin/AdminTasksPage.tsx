@@ -25,7 +25,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import type { EmployeeTask, StudentDocument } from '../../lib/api';
 import { fetchApplicationStudentDocuments, fetchEmployeeTasks, updateEmployeeTask } from '../../lib/api';
@@ -248,8 +248,8 @@ export default function AdminTasksPage() {
 
         <Box className="admin-panel__body">
           <AdminDataTable
-            tableMinWidth={1280}
-            tableLayout="auto"
+            tableMinWidth={1120}
+            tableLayout="fixed"
             maxBodyHeight={{
               xs: 'calc(100vh - 390px)',
               md: 'calc(100vh - 360px)'
@@ -260,65 +260,54 @@ export default function AdminTasksPage() {
             }}
             headerSx={{
               '& .MuiTableCell-root': {
-                maxWidth: 200,
                 whiteSpace: 'nowrap',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
+                fontSize: '0.78rem'
               }
             }}
             bodySx={{
               '& .MuiTableCell-root': {
-                maxWidth: 200
+                verticalAlign: 'top'
               }
             }}
             headerRow={
               <TableRow>
-                <TableCell><SortableHeader field="applicantName" label="Applicant" /></TableCell>
-                <TableCell><SortableHeader field="email" label="Applicant Contact" /></TableCell>
-                <TableCell><SortableHeader field="programName" label="Program" /></TableCell>
-                <TableCell><SortableHeader field="countryName" label="Country" /></TableCell>
-                <TableCell><SortableHeader field="taskStatus" label="Task Status" /></TableCell>
-                <TableCell><SortableHeader field="taskAgingStatus" label="Aging" /></TableCell>
-                <TableCell>Task Notes</TableCell>
-                <TableCell><SortableHeader field="createdAt" label="Created" /></TableCell>
-                <TableCell align="right">Action</TableCell>
+                <TableCell sx={{ width: '18%' }}><SortableHeader field="applicantName" label="Applicant" /></TableCell>
+                <TableCell sx={{ width: '28%' }}><SortableHeader field="programName" label="Program" /></TableCell>
+                <TableCell sx={{ width: '14%' }}><SortableHeader field="countryName" label="Country" /></TableCell>
+                <TableCell sx={{ width: '12%' }}><SortableHeader field="taskStatus" label="Task Status" /></TableCell>
+                <TableCell sx={{ width: '10%' }}><SortableHeader field="taskAgingStatus" label="Aging" /></TableCell>
+                <TableCell sx={{ width: '12%' }}><SortableHeader field="createdAt" label="Created" /></TableCell>
+                <TableCell align="right" sx={{ width: '6%' }}>Action</TableCell>
               </TableRow>
             }
             bodyRows={
               loading
                 ? Array.from({ length: 10 }).map((_, idx) => (
                     <TableRow key={`task-skeleton-${idx}`}>
-                      <TableCell colSpan={9}>
+                      <TableCell colSpan={7}>
                         <Skeleton height={30} />
                       </TableCell>
                     </TableRow>
                   ))
                 : pagedTasks.map((task) => (
-                    <TableRow hover key={task.id}>
-                        <TableCell>
+                    <Fragment key={task.id}>
+                      <TableRow hover className="admin-user-row">
+                        <TableCell sx={{ width: '18%' }}>
                           <Typography variant="body2" fontWeight={700} noWrap>
                             {task.applicantName}
                           </Typography>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" noWrap>{task.email}</Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {task.phone || '-'}
+                        <TableCell sx={{ width: '28%' }}>
+                          <Typography variant="body2" noWrap>
+                            {task.programName || '-'}
                           </Typography>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" noWrap>{task.programName || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {task.universityName || '-'}
+                        <TableCell sx={{ width: '14%' }}>
+                          <Typography variant="body2" noWrap>
+                            {task.countryName || '-'}
                           </Typography>
                         </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" noWrap>{task.countryName || '-'}</Typography>
-                          <Typography variant="caption" color="text.secondary" noWrap>
-                            {task.countryIsoCode || '-'}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ width: '12%' }}>
                           <Chip
                             size="small"
                             label={task.taskStatus === 'completed' ? 'Completed' : 'Under Process'}
@@ -326,7 +315,7 @@ export default function AdminTasksPage() {
                             variant="outlined"
                           />
                         </TableCell>
-                        <TableCell>
+                        <TableCell sx={{ width: '10%' }}>
                           {(() => {
                             const agingStatus = getTaskAgingStatus(task);
                             if (!agingStatus) return '-';
@@ -335,9 +324,12 @@ export default function AdminTasksPage() {
                             return <Chip size="small" label="Critical" color="error" variant="outlined" />;
                           })()}
                         </TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{task.taskNotes || '-'}</TableCell>
-                        <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{new Date(task.createdAt).toLocaleString()}</TableCell>
-                        <TableCell align="right">
+                        <TableCell sx={{ width: '12%' }}>
+                          <Typography variant="body2" noWrap>
+                            {new Date(task.createdAt).toLocaleString()}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right" sx={{ width: '6%' }}>
                           <Stack direction="row" spacing={1} justifyContent="flex-end">
                             <Tooltip title="View student documents">
                               <IconButton size="small" color="primary" onClick={() => openDocumentsDialog(task)}>
@@ -351,7 +343,50 @@ export default function AdminTasksPage() {
                             </Tooltip>
                           </Stack>
                         </TableCell>
-                    </TableRow>
+                      </TableRow>
+                      <TableRow className="admin-user-subrow">
+                        <TableCell colSpan={7} sx={{ py: 1.25, borderBottomColor: '#cbd5e1' }}>
+                          <Box className="admin-user-subrow__grid">
+                            <Box className="admin-user-subrow__item">
+                              <Typography variant="caption" className="admin-user-subrow__label">
+                                Email
+                              </Typography>
+                              <Typography variant="body2">{task.email || '-'}</Typography>
+                            </Box>
+                            <Box className="admin-user-subrow__item">
+                              <Typography variant="caption" className="admin-user-subrow__label">
+                                Phone
+                              </Typography>
+                              <Typography variant="body2">{task.phone || '-'}</Typography>
+                            </Box>
+                            <Box className="admin-user-subrow__item">
+                              <Typography variant="caption" className="admin-user-subrow__label">
+                                University
+                              </Typography>
+                              <Typography variant="body2">{task.universityName || '-'}</Typography>
+                            </Box>
+                            <Box className="admin-user-subrow__item">
+                              <Typography variant="caption" className="admin-user-subrow__label">
+                                Country ISO
+                              </Typography>
+                              <Typography variant="body2">{task.countryIsoCode || '-'}</Typography>
+                            </Box>
+                            <Box className="admin-user-subrow__item">
+                              <Typography variant="caption" className="admin-user-subrow__label">
+                                Linked User
+                              </Typography>
+                              <Typography variant="body2">{task.linkedUserName || task.linkedUserEmail || '-'}</Typography>
+                            </Box>
+                            <Box className="admin-user-subrow__item">
+                              <Typography variant="caption" className="admin-user-subrow__label">
+                                Task Notes
+                              </Typography>
+                              <Typography variant="body2">{task.taskNotes || '-'}</Typography>
+                            </Box>
+                          </Box>
+                        </TableCell>
+                      </TableRow>
+                    </Fragment>
                   ))
             }
           />
