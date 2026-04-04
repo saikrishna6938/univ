@@ -33,20 +33,21 @@ import {
 } from '@mui/material';
 import { type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { AdminEntity, AdminListUser, LeadConversation, LeadConversationStatus, LeadType } from '../../lib/api';
+import type { AdminEntity, AdminListUser, Country, LeadConversation, LeadConversationStatus, LeadType } from '../../lib/api';
 import {
   bulkCreateAdminUsers,
   createAdminUser,
   deleteAdminUser,
   fetchAdminEntities,
   fetchAdminUsers,
+  fetchCountries,
   fetchLeadConversations,
   releaseLeadConversation,
   takeLeadConversation,
   updateAdminUser,
   upsertLeadConversation
 } from '../../lib/api';
-import { toApiLocalDateTime, toLocalInputDateTime } from '../../lib/datetime';
+import { isPendingReminderFollowUp, isPendingReminderOverdue, toApiLocalDateTime, toLocalInputDateTime } from '../../lib/datetime';
 import AdminDataTable from '../../components/admin/AdminDataTable';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
@@ -282,6 +283,7 @@ export default function AdminLeadsPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [leads, setLeads] = useState<AdminListUser[]>([]);
   const [entities, setEntities] = useState<AdminEntity[]>([]);
+  const [countries, setCountries] = useState<Country[]>([]);
   const [conversationsByUserId, setConversationsByUserId] = useState<Record<number, LeadConversation>>({});
   const [loading, setLoading] = useState(true);
   const [savingConversation, setSavingConversation] = useState(false);
@@ -293,6 +295,7 @@ export default function AdminLeadsPage() {
   const [statusFilterValue, setStatusFilterValue] = useState<LeadConversationStatus | 'all'>('all');
   const [leadTypeFilterValue, setLeadTypeFilterValue] = useState<'all' | 'HOT' | 'WARM' | 'COLD' | 'NEW'>('all');
   const [leadGroupFilterValue, setLeadGroupFilterValue] = useState<LeadGroupFilterValue>('all');
+  const [preferredCountryFilterValue, setPreferredCountryFilterValue] = useState<'all' | string>('all');
   const [entityFilterValue, setEntityFilterValue] = useState<'all' | number>('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
@@ -336,13 +339,14 @@ export default function AdminLeadsPage() {
             : (adminUser?.roles || [adminUser?.role || ''])
                 .map((role) => String(role || '').trim().toLowerCase())
                 .filter(Boolean);
-        const [leadRows, conversations, entityRows] = await Promise.all([
+        const [leadRows, conversations, entityRows, countryRows] = await Promise.all([
           fetchAdminUsers('leads', {
             entityId: adminUser?.role === 'admin' && entityFilterValue !== 'all' ? Number(entityFilterValue) : undefined,
             viewerRoles: scopedViewerRoles
           }),
           fetchLeadConversations('leads'),
-          fetchAdminEntities()
+          fetchAdminEntities(),
+          fetchCountries()
         ]);
         if (!mounted) return;
         setLeads(leadRows);
@@ -352,6 +356,7 @@ export default function AdminLeadsPage() {
         });
         setConversationsByUserId(map);
         setEntities(entityRows);
+        setCountries(countryRows);
         setError(null);
       } catch (err) {
         if (!mounted) return;
@@ -380,6 +385,7 @@ export default function AdminLeadsPage() {
       }
       const conversation = conversationsByUserId[lead.id];
       const conversationStatus = conversation?.conversationStatus || 'Awaiting Response';
+      const preferredCountry = String(conversation?.user?.preferredCountry || '').trim();
 
       if (isEmployeeSession && !isMyBucketView && conversation?.assignedEmployeeUserId === adminUser?.id) {
         return false;
@@ -389,6 +395,8 @@ export default function AdminLeadsPage() {
         if (bucketStatusGroup === 'active' && !ACTIVE_BUCKET_STATUSES.has(conversationStatus)) return false;
         if (bucketStatusGroup === 'under-process' && !UNDER_PROCESS_BUCKET_STATUSES.has(conversationStatus)) return false;
         if (bucketStatusGroup === 'closed' && !CLOSED_BUCKET_STATUSES.has(conversationStatus)) return false;
+        if (bucketStatusGroup === 'follow-up' && !isPendingReminderFollowUp(conversation?.reminderAt, conversation?.reminderDone)) return false;
+        if (bucketStatusGroup === 'overdue' && !isPendingReminderOverdue(conversation?.reminderAt, conversation?.reminderDone)) return false;
       }
 
       if (!isMyBucketView && leadGroupFilterValue !== 'all') {
@@ -403,6 +411,9 @@ export default function AdminLeadsPage() {
       if (leadTypeFilterValue !== 'all') {
         if (getEffectiveLeadType(conversation) !== leadTypeFilterValue) return false;
       }
+      if (preferredCountryFilterValue !== 'all') {
+        if (preferredCountry.toLowerCase() !== preferredCountryFilterValue.toLowerCase()) return false;
+      }
 
       return true;
     });
@@ -414,6 +425,7 @@ export default function AdminLeadsPage() {
   }, [
     adminUser?.id,
     leadGroupFilterValue,
+    preferredCountryFilterValue,
     conversationsByUserId,
     bucketStatusGroup,
     isEmployeeSession,
@@ -446,13 +458,32 @@ export default function AdminLeadsPage() {
   }, [filteredLeads, page, rowsPerPage]);
 
   const canManageLeads = adminUser?.role === 'admin' || adminUser?.role === 'manager';
+  const canEmployeeBulkTake = isEmployeeSession && Boolean(selectedLeadName) && !isMyBucketView;
+  const canEmployeeBulkRelease = isEmployeeSession && isMyBucketView;
+  const canSelectLeads = canManageLeads || canEmployeeBulkTake || canEmployeeBulkRelease;
   const pagedLeadIds = useMemo(() => pagedLeads.map((lead) => lead.id), [pagedLeads]);
-  const selectedOnPageCount = useMemo(
-    () => pagedLeadIds.filter((id) => selectedLeadIds.includes(id)).length,
-    [pagedLeadIds, selectedLeadIds]
+  const selectablePagedLeadIds = useMemo(
+    () =>
+      pagedLeads
+        .filter((lead) => {
+          const assignedEmployeeUserId = conversationsByUserId[lead.id]?.assignedEmployeeUserId;
+          if (canEmployeeBulkTake) {
+            return !assignedEmployeeUserId || assignedEmployeeUserId === adminUser?.id;
+          }
+          if (canEmployeeBulkRelease) {
+            return assignedEmployeeUserId === adminUser?.id;
+          }
+          return true;
+        })
+        .map((lead) => lead.id),
+    [adminUser?.id, canEmployeeBulkRelease, canEmployeeBulkTake, conversationsByUserId, pagedLeads]
   );
-  const allSelectedOnPage = pagedLeadIds.length > 0 && selectedOnPageCount === pagedLeadIds.length;
-  const someSelectedOnPage = selectedOnPageCount > 0 && selectedOnPageCount < pagedLeadIds.length;
+  const selectedOnPageCount = useMemo(
+    () => selectablePagedLeadIds.filter((id) => selectedLeadIds.includes(id)).length,
+    [selectablePagedLeadIds, selectedLeadIds]
+  );
+  const allSelectedOnPage = selectablePagedLeadIds.length > 0 && selectedOnPageCount === selectablePagedLeadIds.length;
+  const someSelectedOnPage = selectedOnPageCount > 0 && selectedOnPageCount < selectablePagedLeadIds.length;
 
   useEffect(() => {
     setSelectedLeadIds((prev) => prev.filter((id) => filteredLeads.some((lead) => lead.id === id)));
@@ -688,14 +719,62 @@ export default function AdminLeadsPage() {
     }
   }
 
+  async function takeSelectedLeads() {
+    if (!adminUser?.id || !canEmployeeBulkTake) return;
+    const selectedIdsOnPage = selectablePagedLeadIds.filter((id) => selectedLeadIds.includes(id));
+    if (!selectedIdsOnPage.length) return;
+
+    setSavingConversation(true);
+    try {
+      const savedConversations = await Promise.all(selectedIdsOnPage.map((id) => takeLeadConversation(id, adminUser.id)));
+      setConversationsByUserId((prev) => {
+        const next = { ...prev };
+        savedConversations.forEach((conversation) => {
+          next[conversation.userId] = conversation;
+        });
+        return next;
+      });
+      setSelectedLeadIds((prev) => prev.filter((id) => !selectedIdsOnPage.includes(id)));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to take selected leads');
+    } finally {
+      setSavingConversation(false);
+    }
+  }
+
+  async function releaseSelectedLeads() {
+    if (!adminUser?.id || !canEmployeeBulkRelease) return;
+    const selectedIdsOnPage = selectablePagedLeadIds.filter((id) => selectedLeadIds.includes(id));
+    if (!selectedIdsOnPage.length) return;
+
+    setSavingConversation(true);
+    try {
+      const savedConversations = await Promise.all(selectedIdsOnPage.map((id) => releaseLeadConversation(id, adminUser.id)));
+      setConversationsByUserId((prev) => {
+        const next = { ...prev };
+        savedConversations.forEach((conversation) => {
+          next[conversation.userId] = conversation;
+        });
+        return next;
+      });
+      setSelectedLeadIds((prev) => prev.filter((id) => !selectedIdsOnPage.includes(id)));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to untake selected leads');
+    } finally {
+      setSavingConversation(false);
+    }
+  }
+
   function toggleLeadSelection(leadId: number) {
     setSelectedLeadIds((prev) => (prev.includes(leadId) ? prev.filter((id) => id !== leadId) : [...prev, leadId]));
   }
 
   function toggleSelectAllOnPage(checked: boolean) {
     setSelectedLeadIds((prev) => {
-      const offPageIds = prev.filter((id) => !pagedLeadIds.includes(id));
-      return checked ? [...offPageIds, ...pagedLeadIds] : offPageIds;
+      const offPageIds = prev.filter((id) => !selectablePagedLeadIds.includes(id));
+      return checked ? [...offPageIds, ...selectablePagedLeadIds] : offPageIds;
     });
   }
 
@@ -862,7 +941,47 @@ export default function AdminLeadsPage() {
                 <MenuItem value="NEW">New</MenuItem>
               </Select>
             </FormControl>
+            <FormControl size="small" sx={{ minWidth: 200 }}>
+              <InputLabel id="leads-country-filter-label">Countries</InputLabel>
+              <Select
+                labelId="leads-country-filter-label"
+                value={preferredCountryFilterValue}
+                label="Countries"
+                onChange={(event) => {
+                  setPreferredCountryFilterValue(String(event.target.value));
+                  setPage(0);
+                }}
+              >
+                <MenuItem value="all">All Countries</MenuItem>
+                {countries.map((country) => (
+                  <MenuItem key={String(country.id ?? country._id ?? country.isoCode)} value={country.name}>
+                    {country.name}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
             <Chip label={loading ? 'Loading...' : `${filteredLeads.length} leads`} color="info" variant="outlined" />
+            {canEmployeeBulkTake ? (
+              <Button
+                size="small"
+                variant="contained"
+                onClick={takeSelectedLeads}
+                disabled={savingConversation || selectedOnPageCount === 0}
+              >
+                Take
+              </Button>
+            ) : null}
+            {canEmployeeBulkRelease ? (
+              <Button
+                size="small"
+                color="warning"
+                variant="outlined"
+                onClick={releaseSelectedLeads}
+                disabled={savingConversation || selectedOnPageCount === 0}
+              >
+                Untake
+              </Button>
+            ) : null}
             {canManageLeads ? (
               <Button
                 size="small"
@@ -919,7 +1038,7 @@ export default function AdminLeadsPage() {
             }}
             headerRow={
               <TableRow>
-                {canManageLeads ? (
+                {canSelectLeads ? (
                   <TableCell padding="checkbox" sx={{ width: 52, minWidth: 52 }}>
                     <Checkbox
                       checked={allSelectedOnPage}
@@ -941,7 +1060,7 @@ export default function AdminLeadsPage() {
               loading
                 ? Array.from({ length: 10 }).map((_, idx) => (
                     <TableRow key={`lead-skeleton-${idx}`}>
-                      <TableCell colSpan={canManageLeads ? 7 : 6}>
+                      <TableCell colSpan={canSelectLeads ? 7 : 6}>
                         <Skeleton height={30} />
                       </TableCell>
                     </TableRow>
@@ -955,11 +1074,12 @@ export default function AdminLeadsPage() {
 
                     return (
                       <TableRow hover key={lead.id}>
-                        {canManageLeads ? (
+                        {canSelectLeads ? (
                           <TableCell padding="checkbox" sx={{ width: 52, minWidth: 52 }}>
                             <Checkbox
                               checked={selectedLeadIds.includes(lead.id)}
                               onChange={() => toggleLeadSelection(lead.id)}
+                              disabled={canEmployeeBulkTake && isTakenByOtherEmployee}
                               inputProps={{ 'aria-label': `Select ${lead.name}` }}
                             />
                           </TableCell>
@@ -1111,12 +1231,22 @@ export default function AdminLeadsPage() {
               </Stack>
 
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                <TextField
-                  label="Preferred country"
-                  value={conversationForm.preferredCountry}
-                  onChange={(event) => setConversationForm((prev) => ({ ...prev, preferredCountry: event.target.value }))}
-                  fullWidth
-                />
+                <FormControl fullWidth>
+                  <InputLabel id="lead-preferred-country-label">Preferred country</InputLabel>
+                  <Select
+                    labelId="lead-preferred-country-label"
+                    label="Preferred country"
+                    value={conversationForm.preferredCountry}
+                    onChange={(event) => setConversationForm((prev) => ({ ...prev, preferredCountry: String(event.target.value) }))}
+                  >
+                    <MenuItem value="">-</MenuItem>
+                    {countries.map((country) => (
+                      <MenuItem key={String(country.id ?? country._id ?? country.isoCode)} value={country.name}>
+                        {country.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
                 <TextField
                   label="Program level"
                   value={conversationForm.programLevel}

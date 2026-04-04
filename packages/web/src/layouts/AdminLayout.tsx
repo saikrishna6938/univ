@@ -23,7 +23,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link as RouterLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useAdminAuth } from './AdminAuthContext';
 import { fetchAdminUsers, fetchLeadConversations } from '../lib/api';
-import { formatLocalDateTime, parseLocalDateTime } from '../lib/datetime';
+import { formatLocalDateTime, isPendingReminderFollowUp, isPendingReminderOverdue, parseLocalDateTime } from '../lib/datetime';
 
 type NavItem = {
   label: string;
@@ -124,7 +124,7 @@ export default function AdminLayout() {
   const [leadNavItems, setLeadNavItems] = useState<Array<{ key: string; label: string; count: number }>>([]);
   const [leadNavCount, setLeadNavCount] = useState(0);
   const [myBucketNavCount, setMyBucketNavCount] = useState(0);
-  const [myBucketStatusCounts, setMyBucketStatusCounts] = useState({ active: 0, underProcess: 0, closed: 0 });
+  const [myBucketStatusCounts, setMyBucketStatusCounts] = useState({ active: 0, underProcess: 0, closed: 0, followUp: 0, overdue: 0 });
   const [reminderNotifications, setReminderNotifications] = useState<ReminderNotification[]>([]);
   const [dismissedReminderKeys, setDismissedReminderKeys] = useState<string[]>([]);
   const [dismissedToastKeys, setDismissedToastKeys] = useState<string[]>([]);
@@ -184,6 +184,20 @@ export default function AdminLayout() {
       {
         label: 'Closed',
         to: '/admin/leads?view=my-bucket&bucketStatus=closed',
+        icon: <FiberManualRecordRounded sx={{ fontSize: 8 }} />,
+        nested: true,
+        roles: ['employee']
+      },
+      {
+        label: 'Follow Up',
+        to: '/admin/leads?view=my-bucket&bucketStatus=follow-up',
+        icon: <FiberManualRecordRounded sx={{ fontSize: 8 }} />,
+        nested: true,
+        roles: ['employee']
+      },
+      {
+        label: 'Overdue',
+        to: '/admin/leads?view=my-bucket&bucketStatus=overdue',
         icon: <FiberManualRecordRounded sx={{ fontSize: 8 }} />,
         nested: true,
         roles: ['employee']
@@ -259,7 +273,7 @@ export default function AdminLayout() {
         setLeadNavItems([]);
         setLeadNavCount(0);
         setMyBucketNavCount(0);
-        setMyBucketStatusCounts({ active: 0, underProcess: 0, closed: 0 });
+        setMyBucketStatusCounts({ active: 0, underProcess: 0, closed: 0, followUp: 0, overdue: 0 });
         return;
       }
 
@@ -303,9 +317,11 @@ export default function AdminLayout() {
             if (ACTIVE_BUCKET_STATUSES.has(status)) acc.active += 1;
             else if (UNDER_PROCESS_BUCKET_STATUSES.has(status)) acc.underProcess += 1;
             else if (CLOSED_BUCKET_STATUSES.has(status)) acc.closed += 1;
+            if (isPendingReminderFollowUp(conversation.reminderAt, conversation.reminderDone)) acc.followUp += 1;
+            if (isPendingReminderOverdue(conversation.reminderAt, conversation.reminderDone)) acc.overdue += 1;
             return acc;
           },
-          { active: 0, underProcess: 0, closed: 0 }
+          { active: 0, underProcess: 0, closed: 0, followUp: 0, overdue: 0 }
         );
         setLeadNavItems(groupedLeadNames);
         setLeadNavCount(visibleLeadCount);
@@ -316,7 +332,7 @@ export default function AdminLayout() {
         setLeadNavItems([]);
         setLeadNavCount(0);
         setMyBucketNavCount(0);
-        setMyBucketStatusCounts({ active: 0, underProcess: 0, closed: 0 });
+        setMyBucketStatusCounts({ active: 0, underProcess: 0, closed: 0, followUp: 0, overdue: 0 });
       }
     }
 
@@ -476,6 +492,10 @@ export default function AdminLayout() {
                     ? myBucketStatusCounts.underProcess
                     : item.to === '/admin/leads?view=my-bucket&bucketStatus=closed'
                       ? myBucketStatusCounts.closed
+                      : item.to === '/admin/leads?view=my-bucket&bucketStatus=follow-up'
+                        ? myBucketStatusCounts.followUp
+                        : item.to === '/admin/leads?view=my-bucket&bucketStatus=overdue'
+                          ? myBucketStatusCounts.overdue
                       : null;
 
           return (
@@ -520,7 +540,7 @@ export default function AdminLayout() {
               </ListItemButton>
               {isLeadsRoot && !sidebarCollapsed ? (
                 <Box sx={{ ml: 1.5, mb: 1 }}>
-                  {leadNavItems.map((lead) => {
+                  {leadNavItems.filter((lead) => lead.count > 0).map((lead) => {
                     const leadTo = `/admin/leads?leadName=${encodeURIComponent(lead.label)}`;
                     const leadSelected = `${location.pathname}${location.search}` === leadTo;
                     return (

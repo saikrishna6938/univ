@@ -5,10 +5,21 @@ import { Alert, Box, Chip, CircularProgress, IconButton, Skeleton, Stack, TableC
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EmployeeTask, LeadConversation, LeadUser, TodayReminder } from '../../lib/api';
 import { fetchEmployeeTasks, fetchLeadConversations, fetchLeadsSummary, fetchTaskAnalytics } from '../../lib/api';
-import { formatLocalTime } from '../../lib/datetime';
+import { formatLocalTime, isPendingReminderOverdue } from '../../lib/datetime';
 import AdminDataTable from '../../components/admin/AdminDataTable';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
+
+const UNDER_PROCESS_BUCKET_STATUSES = new Set([
+  'Connected',
+  'Service not available',
+  'Call Not Answered',
+  'Call Disconnected',
+  'Switched Off',
+  'Number Busy',
+  'WhatsApp Sent',
+  'Left Voicemail'
+]);
 
 function getTaskAgingStatus(task: EmployeeTask): 'on_time' | 'aging' | 'critical' | null {
   if ((task.taskStatus || 'under_process') !== 'under_process') return null;
@@ -169,20 +180,54 @@ export default function AdminDashboardPage() {
     const counts = {
       hot: activeBucketConversations.filter((conversation) => conversation.leadType === 'HOT').length,
       warm: activeBucketConversations.filter((conversation) => conversation.leadType === 'WARM').length,
-      cold: activeBucketConversations.filter((conversation) => conversation.leadType === 'COLD').length,
-      newCount: activeBucketConversations.filter((conversation) => conversation.conversationStatus === 'Awaiting Response').length
+      cold: activeBucketConversations.filter((conversation) => conversation.leadType === 'COLD').length
     };
 
     return {
       items: [
         { key: 'hot', label: 'Hot', count: counts.hot, color: 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)' },
         { key: 'warm', label: 'Warm', count: counts.warm, color: 'linear-gradient(180deg, #fbbf24 0%, #d97706 100%)' },
-        { key: 'cold', label: 'Cold', count: counts.cold, color: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)' },
-        { key: 'new', label: 'New', count: counts.newCount, color: 'linear-gradient(180deg, #38bdf8 0%, #2563eb 100%)' }
+        { key: 'cold', label: 'Cold', count: counts.cold, color: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)' }
       ],
-      max: Math.max(1, counts.hot, counts.warm, counts.cold, counts.newCount)
+      max: Math.max(1, counts.hot, counts.warm, counts.cold)
     };
   }, [activeBucketConversations]);
+  const myBucketStatusPie = useMemo(() => {
+    const counts = {
+      overdue: 0,
+      underProcess: 0
+    };
+
+    for (const conversation of leadConversations) {
+      if (conversation.assignedEmployeeUserId !== adminUser?.id) continue;
+
+      if (isPendingReminderOverdue(conversation.reminderAt, conversation.reminderDone)) {
+        counts.overdue += 1;
+        continue;
+      }
+      if (UNDER_PROCESS_BUCKET_STATUSES.has(conversation.conversationStatus)) {
+        counts.underProcess += 1;
+        continue;
+      }
+    }
+
+    const total = counts.overdue + counts.underProcess;
+    const overduePct = total ? (counts.overdue / total) * 100 : 0;
+    const underProcessPct = total ? (counts.underProcess / total) * 100 : 0;
+
+    return {
+      counts,
+      total,
+      pieBackground: `conic-gradient(
+        #dc2626 0% ${overduePct}%,
+        #0f766e ${overduePct}% 100%
+      )`,
+      percentages: {
+        overdue: Math.round(overduePct),
+        underProcess: Math.round(underProcessPct)
+      }
+    };
+  }, [adminUser?.id, leadConversations]);
   const thisMonthLeadMix = useMemo(() => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
@@ -495,6 +540,55 @@ export default function AdminDashboardPage() {
             )}
           </Box>
         </Box>
+
+        {adminUser?.role === 'employee' ? (
+          <Box className="admin-panel">
+            <Box className="admin-panel__head">
+              <Typography variant="h6" fontWeight={800}>
+                My Bucket Status
+              </Typography>
+            </Box>
+            <Box className="admin-panel__body">
+              {loading ? (
+                <Skeleton height={220} />
+              ) : myBucketStatusPie.total === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No leads in your bucket yet.
+                </Typography>
+              ) : (
+                <Box className="admin-task-aging">
+                  <Box className="admin-task-aging__pie-wrap">
+                    <Box className="admin-task-aging__pie" sx={{ background: myBucketStatusPie.pieBackground }} />
+                    <Box className="admin-task-aging__center">
+                      <Typography variant="h6" fontWeight={800}>
+                        {myBucketStatusPie.total}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Leads
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Stack spacing={1.2} sx={{ minWidth: 180 }}>
+                    <Box className="admin-task-aging__legend-row">
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#dc2626' }} />
+                      <Typography variant="body2" fontWeight={700}>Overdue</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {myBucketStatusPie.counts.overdue} ({myBucketStatusPie.percentages.overdue}%)
+                      </Typography>
+                    </Box>
+                    <Box className="admin-task-aging__legend-row">
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#0f766e' }} />
+                      <Typography variant="body2" fontWeight={700}>Under Process</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {myBucketStatusPie.counts.underProcess} ({myBucketStatusPie.percentages.underProcess}%)
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        ) : null}
 
         <Box className="admin-panel">
           <Box className="admin-panel__head">

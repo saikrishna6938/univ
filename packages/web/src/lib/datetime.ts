@@ -52,3 +52,27 @@ export function toApiLocalDateTime(value?: string | null) {
   }
   return normalized;
 }
+
+export function getStartOfLocalDay(date = new Date()) {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+}
+
+export function isPendingReminderFollowUp(value?: string | null, reminderDone?: boolean) {
+  if (!value || reminderDone) return false;
+  const reminderDate = parseLocalDateTime(value);
+  if (Number.isNaN(reminderDate.getTime())) return false;
+  const today = getStartOfLocalDay();
+  const tomorrow = new Date(today);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const dayAfterTomorrow = new Date(today);
+  dayAfterTomorrow.setDate(dayAfterTomorrow.getDate() + 2);
+  return reminderDate >= today && reminderDate < dayAfterTomorrow;
+}
+
+export function isPendingReminderOverdue(value?: string | null, reminderDone?: boolean) {
+  if (!value || reminderDone) return false;
+  const reminderDate = parseLocalDateTime(value);
+  if (Number.isNaN(reminderDate.getTime())) return false;
+  const today = getStartOfLocalDay();
+  return reminderDate < today;
+}
