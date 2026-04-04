@@ -1,4 +1,5 @@
 import { Navigate, Route, Routes } from 'react-router-dom';
+import { useEffect } from 'react';
 import MainLayout from './layouts/MainLayout';
 import Home from './pages/Home';
 import Programs from './pages/Programs';
@@ -16,12 +17,17 @@ import AdminDashboardPage from './pages/admin/AdminDashboardPage';
 import AdminProgramsPage from './pages/admin/AdminProgramsPage';
 import AdminTasksPage from './pages/admin/AdminTasksPage';
 import AdminUsersPage from './pages/admin/AdminUsersPage';
+import AdminLeadsPage from './pages/admin/AdminLeadsPage';
 import AdminFeaturedUniversitiesPage from './pages/admin/AdminFeaturedUniversitiesPage';
 import AdminEventsPage from './pages/admin/AdminEventsPage';
 import AdminScholarshipsPage from './pages/admin/AdminScholarshipsPage';
 import AdminStudyGuidesPage from './pages/admin/AdminStudyGuidesPage';
 import AdminExamsPage from './pages/admin/AdminExamsPage';
+import AdminRolesPage from './pages/admin/AdminRolesPage';
+import AdminEntitiesPage from './pages/admin/AdminEntitiesPage';
 import type { ReactElement } from 'react';
+import GlobalApiProgressBar from './components/GlobalApiProgressBar';
+import { installApiProgressTracking } from './lib/apiProgress';
 import './App.css';
 
 function AdminOnly({ children }: { children: ReactElement }) {
@@ -44,7 +50,7 @@ function RoleAllowed({
   roles,
   children
 }: {
-  roles: Array<'admin' | 'manager' | 'employee'>;
+  roles: string[];
   children: ReactElement;
 }) {
   const { adminUser } = useAdminAuth();
@@ -54,9 +60,24 @@ function RoleAllowed({
   return children;
 }
 
+function AdminMasterAllowed({ children }: { children: ReactElement }) {
+  const { adminUser } = useAdminAuth();
+  const roleTypes = (adminUser?.roleTypes || []).map((roleType) => String(roleType || '').trim().toLowerCase());
+  const hasAccess = adminUser?.role === 'admin' || roleTypes.includes('admin') || roleTypes.includes('superadmin');
+  if (!adminUser || !hasAccess) {
+    return <Navigate to="/admin/dashboard" replace />;
+  }
+  return children;
+}
+
 function App() {
+  useEffect(() => {
+    installApiProgressTracking();
+  }, []);
+
   return (
     <AdminAuthProvider>
+      <GlobalApiProgressBar />
       <Routes>
         <Route
           path="/admin/login"
@@ -121,6 +142,30 @@ function App() {
             element={
               <RoleAllowed roles={['admin', 'manager', 'employee']}>
                 <AdminExamsPage />
+              </RoleAllowed>
+            }
+          />
+          <Route
+            path="roles"
+            element={
+              <AdminMasterAllowed>
+                <AdminRolesPage />
+              </AdminMasterAllowed>
+            }
+          />
+          <Route
+            path="entities"
+            element={
+              <AdminMasterAllowed>
+                <AdminEntitiesPage />
+              </AdminMasterAllowed>
+            }
+          />
+          <Route
+            path="leads"
+            element={
+              <RoleAllowed roles={['admin', 'manager', 'employee']}>
+                <AdminLeadsPage />
               </RoleAllowed>
             }
           />

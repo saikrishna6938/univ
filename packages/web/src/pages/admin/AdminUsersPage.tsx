@@ -1,14 +1,11 @@
 import GroupRounded from '@mui/icons-material/GroupRounded';
 import DeleteOutlineRounded from '@mui/icons-material/DeleteOutlineRounded';
 import EditOutlined from '@mui/icons-material/EditOutlined';
-import ManageAccountsOutlined from '@mui/icons-material/ManageAccountsOutlined';
-import MoveDownOutlined from '@mui/icons-material/MoveDownOutlined';
-import PanToolAltOutlined from '@mui/icons-material/PanToolAltOutlined';
 import {
   Alert,
-  Autocomplete,
   Box,
   Button,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
@@ -22,243 +19,104 @@ import {
   Skeleton,
   Stack,
   TableCell,
-  TableRow,
   TablePagination,
-  TableSortLabel,
+  TableRow,
   TextField,
   Tooltip,
   Typography
 } from '@mui/material';
-import { Fragment, type ChangeEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
-import type { AdminListUser, Country, LeadConversation, LeadConversationStatus, LeadType } from '../../lib/api';
-import { bulkCreateAdminUsers, createAdminUser, deleteAdminUser, fetchAdminUsers, fetchCountries, fetchLeadConversations, releaseLeadConversation, takeLeadConversation, updateAdminUser, upsertLeadConversation } from '../../lib/api';
-import { useAdminAuth } from '../../layouts/AdminAuthContext';
+import { useEffect, useMemo, useState } from 'react';
+import type { AdminListUser, AdminRole, Country } from '../../lib/api';
+import { createAdminUser, deleteAdminUser, fetchAdminRoles, fetchAdminUsers, fetchCountries, updateAdminUser } from '../../lib/api';
 import AdminDataTable from '../../components/admin/AdminDataTable';
+import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
 
-type SortField =
-  | 'name'
-  | 'email'
-  | 'phone'
-  | 'city'
-  | 'role'
-  | 'lookingFor'
-  | 'conversationStatus'
-  | 'reminderAt'
-  | 'createdAt'
-  | 'lastLoginAt';
-type SortDirection = 'asc' | 'desc';
-type SortState = {
-  field: SortField;
-  direction: SortDirection;
+type UserFormState = {
+  name: string;
+  email: string;
+  phone: string;
+  city: string;
+  roles: string[];
+  countryIds: number[];
+  password: string;
 };
 
-type ConversationForm = {
-  lookingFor: string;
-  conversationStatus: LeadConversationStatus;
-  notes: string;
-  reminderAt: string;
-  reminderDone: boolean;
-  lastContactedAt: string;
+const EMPTY_FORM: UserFormState = {
+  name: '',
+  email: '',
+  phone: '',
+  city: '',
+  roles: [],
+  countryIds: [],
+  password: ''
 };
 
-const STATUS_OPTIONS: Array<{ value: LeadConversationStatus; label: string }> = [
-  { value: 'Very Interested', label: 'Very Interested' },
-  { value: 'Interested – Call Back', label: 'Interested – Call Back' },
-  { value: 'Interested – Send Details', label: 'Interested – Send Details' },
-  { value: 'Ready for Application', label: 'Ready for Application' },
-  { value: 'Requested Meeting', label: 'Requested Meeting' },
-  { value: 'Referred to Friend', label: 'Referred to Friend' },
-  { value: 'Need More Time', label: 'Need More Time' },
-  { value: 'Comparing Options', label: 'Comparing Options' },
-  { value: 'Discussing with Family / Partner', label: 'Discussing with Family / Partner' },
-  { value: 'Financial Planning in Process', label: 'Financial Planning in Process' },
-  { value: 'Waiting for Results (IELTS / Exams / Documents)', label: 'Waiting for Results (IELTS / Exams / Documents)' },
-  { value: 'Follow Up Later', label: 'Follow Up Later' },
-  { value: 'Interested for Next Intake', label: 'Interested for Next Intake' },
-  { value: 'Not Interested', label: 'Not Interested' },
-  { value: 'Budget Issue', label: 'Budget Issue' },
-  { value: 'Going with Competitor', label: 'Going with Competitor' },
-  { value: 'Change of Plans', label: 'Change of Plans' },
-  { value: 'Course Not Suitable', label: 'Course Not Suitable' },
-  { value: 'Country Not Preferred', label: 'Country Not Preferred' },
-  { value: 'Already Enrolled Elsewhere', label: 'Already Enrolled Elsewhere' },
-  { value: 'Fake / Invalid Lead', label: 'Fake / Invalid Lead' },
-  { value: 'Call Not Answered', label: 'Call Not Answered' },
-  { value: 'Switched Off', label: 'Switched Off' },
-  { value: 'Number Busy', label: 'Number Busy' },
-  { value: 'Wrong Number', label: 'Wrong Number' },
-  { value: 'WhatsApp Sent', label: 'WhatsApp Sent' },
-  { value: 'Left Voicemail', label: 'Left Voicemail' },
-  { value: 'Awaiting Response', label: 'Awaiting Response' },
-  { value: 'Closed', label: 'Closed' }
-];
-
-const HOT_STATUSES = new Set<LeadConversationStatus>([
-  'Very Interested',
-  'Interested – Call Back',
-  'Interested – Send Details',
-  'Ready for Application',
-  'Requested Meeting',
-  'Referred to Friend'
-]);
-
-const WARM_STATUSES = new Set<LeadConversationStatus>([
-  'Need More Time',
-  'Comparing Options',
-  'Discussing with Family / Partner',
-  'Financial Planning in Process',
-  'Waiting for Results (IELTS / Exams / Documents)',
-  'Follow Up Later',
-  'Interested for Next Intake',
-  'Call Not Answered',
-  'Switched Off',
-  'Number Busy',
-  'WhatsApp Sent',
-  'Left Voicemail',
-  'Awaiting Response'
-]);
-
-function getLeadTypeFromStatus(status: LeadConversationStatus): LeadType {
-  if (HOT_STATUSES.has(status)) return 'HOT';
-  if (WARM_STATUSES.has(status)) return 'WARM';
-  return 'COLD';
+function normalizePanelRoles(input: unknown, allowedRoles: Set<string>): string[] {
+  const values = Array.isArray(input) ? input : [input];
+  return [...new Set(
+    values
+      .flatMap((value) => (Array.isArray(value) ? value : [value]))
+      .map((value) => String(value).trim().toLowerCase())
+      .filter((value) => allowedRoles.has(value))
+  )];
 }
 
-function getLeadTypeColor(type?: LeadType): string {
-  if (type === 'HOT') return '#16a34a';
-  if (type === 'WARM') return '#f59e0b';
-  return '#64748b';
-}
-
-function getStatusChipSx(type?: LeadType) {
-  const background = type === 'HOT' ? '#dcfce7' : type === 'WARM' ? '#fef3c7' : '#e2e8f0';
-  const foreground = type === 'HOT' ? '#166534' : type === 'WARM' ? '#92400e' : '#334155';
-  const border = type === 'HOT' ? '#86efac' : type === 'WARM' ? '#fcd34d' : '#cbd5e1';
-
-  return {
-    bgcolor: background,
-    color: foreground,
-    border: `1px solid ${border}`,
-    fontWeight: 700,
-    '& .MuiChip-label': {
-      px: 1.1
-    }
-  };
-}
-
-function toInputDateTime(value?: string | null): string {
-  if (!value) return '';
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const offsetMs = date.getTimezoneOffset() * 60_000;
-  return new Date(date.getTime() - offsetMs).toISOString().slice(0, 16);
-}
-
-function parseCsvLine(line: string): string[] {
-  const out: string[] = [];
-  let current = '';
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i += 1) {
-    const char = line[i];
-    if (char === '"') {
-      if (inQuotes && line[i + 1] === '"') {
-        current += '"';
-        i += 1;
-      } else {
-        inQuotes = !inQuotes;
-      }
-      continue;
-    }
-    if (char === ',' && !inQuotes) {
-      out.push(current.trim());
-      current = '';
-      continue;
-    }
-    current += char;
-  }
-
-  out.push(current.trim());
-  return out;
+function splitSelectedRoles(selectedRoles: string[]) {
+  const normalized = [...new Set(selectedRoles.map((role) => String(role || '').trim().toLowerCase()).filter(Boolean))];
+  const panelRoles = normalized.filter((role) => role !== 'student' && role !== 'uploaded');
+  const baseRole = normalized.find((role) => role === 'student' || role === 'uploaded') || undefined;
+  return { panelRoles, baseRole };
 }
 
 export default function AdminUsersPage() {
   const { adminUser } = useAdminAuth();
-  const [searchParams] = useSearchParams();
   const isEmployeeSession = adminUser?.role === 'employee';
-  const isMyBucketView = searchParams.get('view') === 'my-bucket';
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [users, setUsers] = useState<AdminListUser[]>([]);
   const [countries, setCountries] = useState<Country[]>([]);
-  const [conversationsByUserId, setConversationsByUserId] = useState<Record<number, LeadConversation>>({});
+  const [roles, setRoles] = useState<AdminRole[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [creatingUser, setCreatingUser] = useState(false);
-  const [uploadingUsers, setUploadingUsers] = useState(false);
-  const [takingUserId, setTakingUserId] = useState<number | null>(null);
+  const [updatingUser, setUpdatingUser] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [sort, setSort] = useState<SortState>({ field: 'createdAt', direction: 'desc' });
-  const [statusFilterValue, setStatusFilterValue] = useState<LeadConversationStatus | 'all'>('all');
-  const [leadTypeFilterValue, setLeadTypeFilterValue] = useState<'all' | 'HOT' | 'WARM' | 'COLD' | 'NEW'>('all');
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
   const [searchText, setSearchText] = useState('');
-
-  const [editingUser, setEditingUser] = useState<AdminListUser | null>(null);
-  const [editingAccountUser, setEditingAccountUser] = useState<AdminListUser | null>(null);
   const [isAddUserOpen, setIsAddUserOpen] = useState(false);
-  const [updatingUser, setUpdatingUser] = useState(false);
-  const [editUserForm, setEditUserForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    city: '',
-    roles: [] as Array<'admin' | 'manager' | 'employee'>,
-    countryIds: [] as number[],
-    password: ''
-  });
-  const [newUserForm, setNewUserForm] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    city: '',
-    roles: [] as Array<'admin' | 'manager' | 'employee'>,
-    countryIds: [] as number[],
-    password: ''
-  });
-  const [form, setForm] = useState<ConversationForm>({
-    lookingFor: '',
-    conversationStatus: 'Awaiting Response',
-    notes: '',
-    reminderAt: '',
-    reminderDone: false,
-    lastContactedAt: ''
-  });
-  const isActiveBucketLead = (conversation?: LeadConversation) =>
-    Boolean(conversation?.assignedEmployeeUserId) && conversation?.conversationStatus !== 'Closed';
+  const [editingUser, setEditingUser] = useState<AdminListUser | null>(null);
+  const [newUserForm, setNewUserForm] = useState<UserFormState>(EMPTY_FORM);
+  const [editUserForm, setEditUserForm] = useState<UserFormState>(EMPTY_FORM);
+  const [selectedUserIds, setSelectedUserIds] = useState<number[]>([]);
+
+  const enabledRoleOptions = useMemo(() => roles.filter((role) => role.enabled), [roles]);
+  const allowedRoleNames = useMemo(
+    () => new Set(enabledRoleOptions.map((role) => String(role.roleName || '').toLowerCase())),
+    [enabledRoleOptions]
+  );
 
   useEffect(() => {
     let mounted = true;
 
-    async function loadUsers() {
+    async function loadData() {
       setLoading(true);
       try {
-        const [rows, conversations, countryRows] = await Promise.all([
-          fetchAdminUsers(),
-          fetchLeadConversations(),
-          fetchCountries()
+        const scopedViewerRoles =
+          adminUser?.role === 'admin'
+            ? undefined
+            : (adminUser?.roles || [adminUser?.role || ''])
+                .map((role) => String(role || '').trim().toLowerCase())
+                .filter(Boolean);
+        const [userRows, countryRows, roleRows] = await Promise.all([
+          fetchAdminUsers('registered', { viewerRoles: scopedViewerRoles }),
+          fetchCountries(),
+          fetchAdminRoles()
         ]);
         if (!mounted) return;
-
-        setUsers(rows);
+        setUsers(userRows);
         setCountries(countryRows);
-        const map: Record<number, LeadConversation> = {};
-        conversations.forEach((conversation) => {
-          map[conversation.userId] = conversation;
-        });
-        setConversationsByUserId(map);
+        setRoles(roleRows);
+        setError(null);
       } catch (err) {
         if (!mounted) return;
         setError(err instanceof Error ? err.message : 'Failed to load users');
@@ -267,126 +125,21 @@ export default function AdminUsersPage() {
       }
     }
 
-    loadUsers();
+    loadData();
     return () => {
       mounted = false;
     };
-  }, []);
-
-  function getComparableValue(user: AdminListUser, field: SortField): string | number | null {
-    const conversation = conversationsByUserId[user.id];
-
-    if (field === 'createdAt') return new Date(user.createdAt).getTime();
-    if (field === 'lastLoginAt') return user.lastLoginAt ? new Date(user.lastLoginAt).getTime() : null;
-    if (field === 'reminderAt') return conversation?.reminderAt ? new Date(conversation.reminderAt).getTime() : null;
-    if (field === 'lookingFor') return conversation?.lookingFor ? String(conversation.lookingFor).toLowerCase() : null;
-    if (field === 'conversationStatus')
-      return conversation?.conversationStatus ? String(conversation.conversationStatus).toLowerCase() : null;
-    if (field === 'role') return user.roles && user.roles.length ? user.roles.join(',') : user.role;
-
-    const value = user[field];
-    if (value === undefined || value === null || value === '') return null;
-    return String(value).toLowerCase();
-  }
-
-  function handleSort(field: SortField) {
-    setSort((current) => {
-      if (current.field === field) {
-        return { field, direction: current.direction === 'asc' ? 'desc' : 'asc' };
-      }
-      return { field, direction: 'asc' };
-    });
-  }
-
-  const sortedUsers = useMemo(() => {
-    const direction = sort.direction === 'asc' ? 1 : -1;
-    const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
-
-    return [...users].sort((a, b) => {
-      const aValue = getComparableValue(a, sort.field);
-      const bValue = getComparableValue(b, sort.field);
-
-      if (aValue === null && bValue === null) return a.id - b.id;
-      if (aValue === null) return 1;
-      if (bValue === null) return -1;
-
-      if (typeof aValue === 'number' && typeof bValue === 'number') {
-        if (aValue < bValue) return -1 * direction;
-        if (aValue > bValue) return 1 * direction;
-        return a.id - b.id;
-      }
-
-      const textCompare = collator.compare(String(aValue), String(bValue));
-      if (textCompare !== 0) return textCompare * direction;
-      return 0;
-    });
-  }, [sort, users]);
-
-  const visibleUsers = useMemo(() => {
-    const sessionRole = String(adminUser?.role || '').toLowerCase();
-
-    if (sessionRole === 'employee') {
-      return sortedUsers.filter((user) => {
-        const role = String(user.role || '').toLowerCase();
-        return role === 'student' || role === 'uploaded';
-      });
-    }
-
-    if (sessionRole === 'manager') {
-      return sortedUsers.filter((user) => {
-        const role = String(user.role || '').toLowerCase();
-        return role === 'student' || role === 'uploaded' || role === 'employee';
-      });
-    }
-
-    return sortedUsers;
-  }, [adminUser?.role, sortedUsers]);
+  }, [adminUser?.role, adminUser?.roles]);
 
   const filteredUsers = useMemo(() => {
     const query = searchText.trim().toLowerCase();
-    const scopedUsers =
-      isEmployeeSession && isMyBucketView
-        ? visibleUsers.filter((user) => {
-            const conversation = conversationsByUserId[user.id];
-            return conversation?.assignedEmployeeUserId === adminUser?.id && isActiveBucketLead(conversation);
-          })
-        : visibleUsers;
-
-    const activeUsers = statusFilterValue === 'Closed'
-      ? scopedUsers
-      : scopedUsers.filter((user) => conversationsByUserId[user.id]?.conversationStatus !== 'Closed');
-
-    const statusFilteredUsers = activeUsers.filter((user) => {
-      const conversation = conversationsByUserId[user.id];
-      if (statusFilterValue !== 'all') {
-        return conversation?.conversationStatus === statusFilterValue;
-      }
-      if (leadTypeFilterValue !== 'all') {
-        if (leadTypeFilterValue === 'NEW') {
-          return conversation?.conversationStatus === 'Awaiting Response';
-        }
-        return conversation?.leadType === leadTypeFilterValue;
-      }
-      return true;
+    if (!query) return users;
+    return users.filter((user) => {
+      const values = [user.name, user.phone, user.email, user.role, ...(user.roles || [])]
+        .map((value) => String(value || '').toLowerCase());
+      return values.some((value) => value.includes(query));
     });
-
-    if (!query) return statusFilteredUsers;
-    return statusFilteredUsers.filter((user) => {
-      const name = String(user.name || '').toLowerCase();
-      const email = String(user.email || '').toLowerCase();
-      const phone = String(user.phone || '').toLowerCase();
-      return name.includes(query) || email.includes(query) || phone.includes(query);
-    });
-  }, [
-    adminUser?.id,
-    conversationsByUserId,
-    isEmployeeSession,
-    isMyBucketView,
-    leadTypeFilterValue,
-    searchText,
-    statusFilterValue,
-    visibleUsers
-  ]);
+  }, [searchText, users]);
 
   useEffect(() => {
     const maxPage = Math.max(0, Math.ceil(filteredUsers.length / rowsPerPage) - 1);
@@ -398,119 +151,30 @@ export default function AdminUsersPage() {
     return filteredUsers.slice(start, start + rowsPerPage);
   }, [filteredUsers, page, rowsPerPage]);
 
-  function renderSortHeader(field: SortField, label: string) {
-    return (
-      <TableSortLabel
-        active={sort.field === field}
-        direction={sort.field === field ? sort.direction : 'asc'}
-        onClick={() => handleSort(field)}
-      >
-        {label}
-      </TableSortLabel>
-    );
-  }
+  const canManageUsers = adminUser?.role === 'admin' || adminUser?.role === 'manager';
+  const pagedUserIds = useMemo(() => pagedUsers.map((user) => user.id), [pagedUsers]);
+  const selectedOnPageCount = useMemo(
+    () => pagedUserIds.filter((id) => selectedUserIds.includes(id)).length,
+    [pagedUserIds, selectedUserIds]
+  );
+  const allSelectedOnPage = pagedUserIds.length > 0 && selectedOnPageCount === pagedUserIds.length;
+  const someSelectedOnPage = selectedOnPageCount > 0 && selectedOnPageCount < pagedUserIds.length;
 
-  function openConversationEditor(user: AdminListUser) {
-    const conversation = conversationsByUserId[user.id];
-    const takenByOtherEmployee =
-      isEmployeeSession &&
-      conversation?.assignedEmployeeUserId &&
-      adminUser?.id &&
-      conversation.assignedEmployeeUserId !== adminUser.id;
-
-    if (takenByOtherEmployee) {
-      setError(`${conversation.assignedEmployee?.name || 'Another employee'} already took this lead`);
-      return;
-    }
-
-    setEditingUser(user);
-    setForm({
-      lookingFor: conversation?.lookingFor || '',
-      conversationStatus: conversation?.conversationStatus || 'Awaiting Response',
-      notes: conversation?.notes || '',
-      reminderAt: toInputDateTime(conversation?.reminderAt),
-      reminderDone: conversation?.reminderDone || false,
-      lastContactedAt: toInputDateTime(conversation?.lastContactedAt)
-    });
-  }
+  useEffect(() => {
+    setSelectedUserIds((prev) => prev.filter((id) => filteredUsers.some((user) => user.id === id)));
+  }, [filteredUsers]);
 
   function openUserEditor(user: AdminListUser) {
-    setEditingAccountUser(user);
+    setEditingUser(user);
     setEditUserForm({
       name: user.name || '',
       email: user.email || '',
       phone: user.phone || '',
       city: user.city || '',
-      roles: (user.roles || []).filter((role): role is 'admin' | 'manager' | 'employee' =>
-        ['admin', 'manager', 'employee'].includes(role)
-      ),
+      roles: [...new Set([String(user.role || '').toLowerCase(), ...normalizePanelRoles(user.roles || [], allowedRoleNames)].filter(Boolean))],
       countryIds: (user.countryIds || []).map((id) => Number(id)).filter((id) => !Number.isNaN(id)),
       password: ''
     });
-  }
-
-  async function saveConversation() {
-    if (!editingUser) return;
-
-    setSaving(true);
-    try {
-      const saved = await upsertLeadConversation(editingUser.id, {
-        lookingFor: form.lookingFor.trim() || null,
-        conversationStatus: form.conversationStatus,
-        notes: form.notes.trim() || null,
-        reminderAt: form.reminderAt ? new Date(form.reminderAt).toISOString() : null,
-        reminderDone: form.reminderDone,
-        lastContactedAt: form.lastContactedAt ? new Date(form.lastContactedAt).toISOString() : null,
-        actingAdminUserId: adminUser?.id ?? null,
-        actingAdminRole: adminUser?.role || 'employee'
-      });
-
-      setConversationsByUserId((prev) => ({
-        ...prev,
-        [saved.userId]: saved
-      }));
-      setEditingUser(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save conversation');
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  async function takeLead(user: AdminListUser) {
-    if (!adminUser?.id || !isEmployeeSession) return;
-
-    setTakingUserId(user.id);
-    try {
-      const saved = await takeLeadConversation(user.id, adminUser.id);
-      setConversationsByUserId((prev) => ({
-        ...prev,
-        [saved.userId]: saved
-      }));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to take lead');
-    } finally {
-      setTakingUserId(null);
-    }
-  }
-
-  async function releaseLead(user: AdminListUser) {
-    if (!adminUser?.id || !isEmployeeSession) return;
-
-    setTakingUserId(user.id);
-    try {
-      const saved = await releaseLeadConversation(user.id, adminUser.id);
-      setConversationsByUserId((prev) => ({
-        ...prev,
-        [saved.userId]: saved
-      }));
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove lead from your bucket');
-    } finally {
-      setTakingUserId(null);
-    }
   }
 
   async function addUser() {
@@ -521,20 +185,21 @@ export default function AdminUsersPage() {
 
     setCreatingUser(true);
     try {
+      const { panelRoles, baseRole } = splitSelectedRoles(newUserForm.roles);
       const created = await createAdminUser({
         name: newUserForm.name.trim(),
         email: newUserForm.email.trim(),
         phone: newUserForm.phone.trim() || undefined,
         city: newUserForm.city.trim() || undefined,
-        role: isEmployeeSession ? 'student' : undefined,
-        roles: isEmployeeSession ? [] : newUserForm.roles,
+        role: isEmployeeSession ? 'student' : baseRole,
+        roles: isEmployeeSession ? [] : panelRoles,
         countryIds: isEmployeeSession ? [] : newUserForm.countryIds,
-        password: newUserForm.password || undefined
+        password: newUserForm.password.trim() || undefined
       });
 
       setUsers((prev) => [created, ...prev]);
+      setNewUserForm(EMPTY_FORM);
       setIsAddUserOpen(false);
-      setNewUserForm({ name: '', email: '', phone: '', city: '', roles: [], countryIds: [], password: '' });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add user');
@@ -544,7 +209,7 @@ export default function AdminUsersPage() {
   }
 
   async function saveUserEdit() {
-    if (!editingAccountUser) return;
+    if (!editingUser) return;
     if (!editUserForm.name.trim() || !editUserForm.email.trim()) {
       setError('Name and email are required');
       return;
@@ -552,18 +217,20 @@ export default function AdminUsersPage() {
 
     setUpdatingUser(true);
     try {
-      const updated = await updateAdminUser(editingAccountUser.id, {
+      const { panelRoles, baseRole } = splitSelectedRoles(editUserForm.roles);
+      const updated = await updateAdminUser(editingUser.id, {
         name: editUserForm.name.trim(),
         email: editUserForm.email.trim(),
         phone: editUserForm.phone.trim() || undefined,
         city: editUserForm.city.trim() || undefined,
-        roles: editUserForm.roles,
+        role: baseRole,
+        roles: panelRoles,
         countryIds: editUserForm.countryIds,
         password: editUserForm.password.trim() || undefined
       });
 
       setUsers((prev) => prev.map((user) => (user.id === updated.id ? updated : user)));
-      setEditingAccountUser(null);
+      setEditingUser(null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to update user');
@@ -576,73 +243,48 @@ export default function AdminUsersPage() {
     const ok = window.confirm(`Delete user "${user.name}"?`);
     if (!ok) return;
 
+    setSaving(true);
     try {
       await deleteAdminUser(user.id);
       setUsers((prev) => prev.filter((item) => item.id !== user.id));
-      setConversationsByUserId((prev) => {
-        const next = { ...prev };
-        delete next[user.id];
-        return next;
-      });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to delete user');
-    }
-  }
-
-  async function uploadUsersCsv(file: File) {
-    const text = await file.text();
-    const lines = text
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean);
-
-    if (lines.length < 2) {
-      throw new Error('CSV must include header and at least one row');
-    }
-
-    const headers = parseCsvLine(lines[0]).map((h) => h.toLowerCase());
-    const rows = lines.slice(1).map((line, index) => {
-      const cells = parseCsvLine(line);
-      const rowObj: Record<string, string> = {};
-      headers.forEach((header, idx) => {
-        rowObj[header] = cells[idx] ?? '';
-      });
-      return { row: index + 2, data: rowObj };
-    });
-
-    const payload = rows.map(({ data }) => {
-      return {
-        name: String(data.name || '').trim(),
-        email: String(data.email || '').trim(),
-        phone: String(data.phone || '').trim() || undefined
-      };
-    });
-
-    return bulkCreateAdminUsers(payload);
-  }
-
-  async function handleCsvInputChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-
-    setUploadingUsers(true);
-    try {
-      const result = await uploadUsersCsv(file);
-      if (result.created.length) {
-        setUsers((prev) => [...result.created, ...prev]);
-      }
-      setError(
-        result.failedCount
-          ? `Imported ${result.createdCount} users, ${result.failedCount} failed. Check CSV values (email uniqueness, password for panel roles, country ids).`
-          : `Successfully imported ${result.createdCount} users.`
-      );
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to import CSV');
     } finally {
-      setUploadingUsers(false);
+      setSaving(false);
     }
+  }
+
+  async function removeSelectedUsers() {
+    if (!selectedUserIds.length) return;
+    const selectedIdsOnPage = pagedUserIds.filter((id) => selectedUserIds.includes(id));
+    if (!selectedIdsOnPage.length) return;
+
+    const ok = window.confirm(`Delete ${selectedIdsOnPage.length} selected user(s) from this page?`);
+    if (!ok) return;
+
+    setSaving(true);
+    try {
+      await Promise.all(selectedIdsOnPage.map((id) => deleteAdminUser(id)));
+      setUsers((prev) => prev.filter((user) => !selectedIdsOnPage.includes(user.id)));
+      setSelectedUserIds((prev) => prev.filter((id) => !selectedIdsOnPage.includes(id)));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete selected users');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function toggleUserSelection(userId: number) {
+    setSelectedUserIds((prev) => (prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId]));
+  }
+
+  function toggleSelectAllOnPage(checked: boolean) {
+    setSelectedUserIds((prev) => {
+      const offPageIds = prev.filter((id) => !pagedUserIds.includes(id));
+      return checked ? [...offPageIds, ...pagedUserIds] : offPageIds;
+    });
   }
 
   return (
@@ -657,73 +299,33 @@ export default function AdminUsersPage() {
         <Box className="admin-panel__head">
           <Typography variant="h6" fontWeight={800} sx={{ display: 'flex', alignItems: 'center', gap: 0.7 }}>
             <GroupRounded sx={{ fontSize: 18, color: '#0369a1' }} />
-            {isMyBucketView ? 'My Bucket' : 'Users'}
+            Users
           </Typography>
           <Stack direction="row" spacing={1}>
             <TextField
+              id="user-grid-filter"
+              name="user_grid_filter"
               size="small"
-              placeholder="Filter by name, email, or phone"
+              placeholder="Filter by name, email, phone, or role"
               value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
+              onChange={(event) => {
+                setSearchText(event.target.value);
+                setPage(0);
+              }}
+              autoComplete="new-password"
+              inputProps={{ autoComplete: 'new-password' }}
             />
-            <FormControl size="small" sx={{ minWidth: 210 }}>
-              <InputLabel id="users-status-filter-label">Status Filter</InputLabel>
-              <Select
-                labelId="users-status-filter-label"
-                value={statusFilterValue}
-                label="Status Filter"
-                onChange={(event) => {
-                  setStatusFilterValue(event.target.value as LeadConversationStatus | 'all');
-                  setLeadTypeFilterValue('all');
-                  setPage(0);
-                }}
-              >
-                <MenuItem value="all">All Statuses</MenuItem>
-                {STATUS_OPTIONS.map((option) => (
-                  <MenuItem key={`status-filter-${option.value}`} value={option.value}>
-                    {option.label}
-                  </MenuItem>
-                ))}
-              </Select>
-            </FormControl>
-            <FormControl size="small" sx={{ minWidth: 170 }}>
-              <InputLabel id="users-type-filter-label">Type Filter</InputLabel>
-              <Select
-                labelId="users-type-filter-label"
-                value={leadTypeFilterValue}
-                label="Type Filter"
-                onChange={(event) => {
-                  setLeadTypeFilterValue(event.target.value as 'all' | 'HOT' | 'WARM' | 'COLD' | 'NEW');
-                  setStatusFilterValue('all');
-                  setPage(0);
-                }}
-              >
-                <MenuItem value="all">All Types</MenuItem>
-                <MenuItem value="HOT">Hot</MenuItem>
-                <MenuItem value="WARM">Warm</MenuItem>
-                <MenuItem value="COLD">Cold</MenuItem>
-                <MenuItem value="NEW">New</MenuItem>
-              </Select>
-            </FormControl>
             <Chip label={loading ? 'Loading...' : `${filteredUsers.length} users`} color="info" variant="outlined" />
-            {adminUser?.role === 'admin' || adminUser?.role === 'manager' ? (
-              <>
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept=".csv,text/csv"
-                  style={{ display: 'none' }}
-                  onChange={handleCsvInputChange}
-                />
-                <Button
-                  size="small"
-                  variant="outlined"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={uploadingUsers}
-                >
-                  {uploadingUsers ? 'Uploading...' : 'Upload CSV'}
-                </Button>
-              </>
+            {canManageUsers ? (
+              <Button
+                size="small"
+                color="error"
+                variant="outlined"
+                onClick={removeSelectedUsers}
+                disabled={saving || selectedOnPageCount === 0}
+              >
+                Delete Selected
+              </Button>
             ) : null}
             <Button size="small" variant="contained" onClick={() => setIsAddUserOpen(true)}>
               Add User
@@ -732,13 +334,8 @@ export default function AdminUsersPage() {
         </Box>
 
         <Box className="admin-panel__body">
-          {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', px: 1, pb: 1 }}>
-              CSV columns: `name,email,phone`. Upload defaults are auto-applied: city=`Hyderabad`, role=`uploaded`, country_ids=`null`, password=`Student@123`.
-            </Typography>
-          ) : null}
           <AdminDataTable
-            tableMinWidth={1120}
+            tableMinWidth={960}
             tableLayout="auto"
             headerSx={{
               '& .MuiTableCell-root': {
@@ -746,26 +343,30 @@ export default function AdminUsersPage() {
                 fontSize: '0.78rem'
               }
             }}
-            bodySx={{
-              '& .MuiTableCell-root': {
-                verticalAlign: 'top'
-              }
-            }}
             maxBodyHeight={{
-              xs: 'calc(100vh - 410px)',
-              md: 'calc(100vh - 380px)'
+              xs: 'calc(100vh - 350px)',
+              md: 'calc(100vh - 330px)'
             }}
             minBodyHeight={{
-              xs: 'calc(100vh - 490px)',
-              md: 'calc(100vh - 440px)'
+              xs: 'calc(100vh - 430px)',
+              md: 'calc(100vh - 390px)'
             }}
             headerRow={
               <TableRow>
-                <TableCell>{renderSortHeader('name', 'Name')}</TableCell>
-                <TableCell>{renderSortHeader('lookingFor', 'Looking For')}</TableCell>
-                <TableCell>{renderSortHeader('conversationStatus', 'Status')}</TableCell>
-                <TableCell>Bucket</TableCell>
-                <TableCell>{renderSortHeader('createdAt', 'Created')}</TableCell>
+                {canManageUsers ? (
+                  <TableCell padding="checkbox" sx={{ width: 52, minWidth: 52 }}>
+                    <Checkbox
+                      checked={allSelectedOnPage}
+                      indeterminate={someSelectedOnPage}
+                      onChange={(event) => toggleSelectAllOnPage(event.target.checked)}
+                      inputProps={{ 'aria-label': 'Select all users on current page' }}
+                    />
+                  </TableCell>
+                ) : null}
+                <TableCell>Name</TableCell>
+                <TableCell>Phone</TableCell>
+                <TableCell>Email</TableCell>
+                <TableCell>Roles</TableCell>
                 <TableCell align="right">Action</TableCell>
               </TableRow>
             }
@@ -773,172 +374,52 @@ export default function AdminUsersPage() {
               loading
                 ? Array.from({ length: 10 }).map((_, idx) => (
                     <TableRow key={`user-skeleton-${idx}`}>
-                      <TableCell colSpan={6}>
+                      <TableCell colSpan={canManageUsers ? 6 : 5}>
                         <Skeleton height={30} />
                       </TableCell>
                     </TableRow>
                   ))
-                : pagedUsers.map((user) => {
-                    const conversation = conversationsByUserId[user.id];
-                    const isTaken = Boolean(conversation?.assignedEmployeeUserId);
-                    const isTakenByCurrentEmployee =
-                      Boolean(adminUser?.id) && conversation?.assignedEmployeeUserId === adminUser?.id;
-                    const isTakenByOtherEmployee = isEmployeeSession && isTaken && !isTakenByCurrentEmployee;
-                    const canTakeLead = isEmployeeSession && (!isTaken || isTakenByCurrentEmployee);
-                    const canManageConversation = isMyBucketView && (!isEmployeeSession || isTakenByCurrentEmployee);
-                    return (
-                      <Fragment key={user.id}>
-                        <TableRow hover key={`main-${user.id}`} className="admin-user-row">
-                          <TableCell>
-                            <Typography variant="body2" fontWeight={700}>
-                              {user.name}
-                            </Typography>
-                          </TableCell>
-                          <TableCell sx={{ minWidth: 220 }}>{conversation?.lookingFor || '-'}</TableCell>
-                          <TableCell>
-                            <Stack direction="row" spacing={1} alignItems="center">
-                              <Chip
-                                size="small"
-                                label={conversation?.conversationStatus || 'Awaiting Response'}
-                                variant="filled"
-                                sx={getStatusChipSx(conversation?.leadType)}
-                              />
-                              <Box
-                                sx={{
-                                  width: 10,
-                                  height: 10,
-                                  borderRadius: '50%',
-                                  bgcolor: getLeadTypeColor(conversation?.leadType),
-                                  flexShrink: 0
-                                }}
-                              />
-                            </Stack>
-                          </TableCell>
-                          <TableCell>
-                            {conversation?.assignedEmployee ? (
-                              <Chip
-                                size="small"
-                                label={
-                                  isTakenByCurrentEmployee
-                                    ? `Taken by you`
-                                    : `Taken by ${conversation.assignedEmployee.name}`
-                                }
-                                color={isTakenByCurrentEmployee ? 'success' : 'warning'}
-                                variant={isTakenByCurrentEmployee ? 'filled' : 'outlined'}
-                              />
-                            ) : (
-                              '-'
-                            )}
-                          </TableCell>
-                          <TableCell>{new Date(user.createdAt).toLocaleString()}</TableCell>
-                          <TableCell align="right">
-                            <Stack direction="row" spacing={1} justifyContent="flex-end">
-                              {isEmployeeSession ? (
-                                <Tooltip
-                                  title={
-                                    isTakenByOtherEmployee
-                                      ? `${conversation?.assignedEmployee?.name || 'Another employee'} already took this lead`
-                                      : isTakenByCurrentEmployee
-                                        ? 'Remove from my bucket'
-                                        : 'Take this lead'
-                                  }
-                                >
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      color={isTakenByCurrentEmployee ? 'success' : 'primary'}
-                                      onClick={() => (isTakenByCurrentEmployee ? releaseLead(user) : takeLead(user))}
-                                      disabled={!canTakeLead || takingUserId === user.id}
-                                    >
-                                      {isTakenByCurrentEmployee ? (
-                                        <MoveDownOutlined fontSize="small" />
-                                      ) : (
-                                        <PanToolAltOutlined fontSize="small" />
-                                      )}
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                              ) : null}
-                              {isMyBucketView ? (
-                                <Tooltip title="Manage lead conversation">
-                                  <span>
-                                    <IconButton
-                                      size="small"
-                                      color="primary"
-                                      onClick={() => openConversationEditor(user)}
-                                      disabled={!canManageConversation}
-                                    >
-                                      <ManageAccountsOutlined fontSize="small" />
-                                    </IconButton>
-                                  </span>
-                                </Tooltip>
-                              ) : null}
-                              {(adminUser?.role === 'admin' || adminUser?.role === 'manager') ? (
-                                <>
-                                  <Tooltip title="Edit user">
-                                    <IconButton size="small" color="primary" onClick={() => openUserEditor(user)}>
-                                      <EditOutlined fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                  <Tooltip title="Delete user">
-                                    <IconButton size="small" color="error" onClick={() => removeUser(user)}>
-                                      <DeleteOutlineRounded fontSize="small" />
-                                    </IconButton>
-                                  </Tooltip>
-                                </>
-                              ) : null}
-                            </Stack>
-                          </TableCell>
-                        </TableRow>
-                        <TableRow key={`sub-${user.id}`} className="admin-user-subrow">
-                          <TableCell colSpan={6} sx={{ py: 1.25, borderBottomColor: '#cbd5e1' }}>
-                            <Box className="admin-user-subrow__grid">
-                              <Box className="admin-user-subrow__item">
-                                <Typography variant="caption" className="admin-user-subrow__label">
-                                  Email
-                                </Typography>
-                                <Typography variant="body2">{user.email || '-'}</Typography>
-                              </Box>
-                              <Box className="admin-user-subrow__item">
-                                <Typography variant="caption" className="admin-user-subrow__label">
-                                  Phone
-                                </Typography>
-                                <Typography variant="body2">{user.phone || '-'}</Typography>
-                              </Box>
-                              <Box className="admin-user-subrow__item">
-                                <Typography variant="caption" className="admin-user-subrow__label">
-                                  City
-                                </Typography>
-                                <Typography variant="body2">{user.city || '-'}</Typography>
-                              </Box>
-                              <Box className="admin-user-subrow__item">
-                                <Typography variant="caption" className="admin-user-subrow__label">
-                                  Roles
-                                </Typography>
-                                <Typography variant="body2">{user.roles && user.roles.length ? user.roles.join(', ') : user.role}</Typography>
-                              </Box>
-                              <Box className="admin-user-subrow__item">
-                                <Typography variant="caption" className="admin-user-subrow__label">
-                                  Reminder
-                                </Typography>
-                                <Typography variant="body2">
-                                  {conversation?.reminderAt ? new Date(conversation.reminderAt).toLocaleString() : '-'}
-                                </Typography>
-                              </Box>
-                              <Box className="admin-user-subrow__item">
-                                <Typography variant="caption" className="admin-user-subrow__label">
-                                  Last Login
-                                </Typography>
-                                <Typography variant="body2">
-                                  {user.lastLoginAt ? new Date(user.lastLoginAt).toLocaleString() : '-'}
-                                </Typography>
-                              </Box>
-                            </Box>
-                          </TableCell>
-                        </TableRow>
-                      </Fragment>
-                    );
-                  })
+                : pagedUsers.map((user) => (
+                    <TableRow hover key={user.id}>
+                      {canManageUsers ? (
+                        <TableCell padding="checkbox" sx={{ width: 52, minWidth: 52 }}>
+                          <Checkbox
+                            checked={selectedUserIds.includes(user.id)}
+                            onChange={() => toggleUserSelection(user.id)}
+                            inputProps={{ 'aria-label': `Select ${user.name}` }}
+                          />
+                        </TableCell>
+                      ) : null}
+                      <TableCell>
+                        <Typography variant="body2" fontWeight={700}>
+                          {user.name}
+                        </Typography>
+                      </TableCell>
+                      <TableCell>{user.phone || '-'}</TableCell>
+                      <TableCell>{user.email || '-'}</TableCell>
+                      <TableCell>{user.roles && user.roles.length ? user.roles.join(', ') : user.role}</TableCell>
+                      <TableCell align="right">
+                        {canManageUsers ? (
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            <Tooltip title="Edit user">
+                              <IconButton size="small" color="primary" onClick={() => openUserEditor(user)}>
+                                <EditOutlined fontSize="small" />
+                              </IconButton>
+                            </Tooltip>
+                            <Tooltip title="Delete user">
+                              <span>
+                                <IconButton size="small" color="error" onClick={() => removeUser(user)} disabled={saving}>
+                                  <DeleteOutlineRounded fontSize="small" />
+                                </IconButton>
+                              </span>
+                            </Tooltip>
+                          </Stack>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  ))
             }
           />
           {!loading ? (
@@ -958,136 +439,14 @@ export default function AdminUsersPage() {
         </Box>
       </Box>
 
-      <Dialog fullWidth maxWidth="md" open={Boolean(editingUser)} onClose={() => setEditingUser(null)}>
-        <DialogTitle>Lead Conversation</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <Typography variant="body2" color="text.secondary">
-              {editingUser ? `Student: ${editingUser.name} (${editingUser.email || editingUser.phone || 'No contact'})` : ''}
-            </Typography>
-
-            <TextField
-              label="What are they looking for?"
-              value={form.lookingFor}
-              onChange={(event) => setForm((prev) => ({ ...prev, lookingFor: event.target.value }))}
-              multiline
-              minRows={2}
-              fullWidth
-            />
-
-            <Autocomplete
-              fullWidth
-              options={STATUS_OPTIONS}
-              value={STATUS_OPTIONS.find((option) => option.value === form.conversationStatus) || null}
-              onChange={(_event, option) => {
-                if (!option) return;
-                setForm((prev) => ({ ...prev, conversationStatus: option.value }));
-              }}
-              getOptionLabel={(option) => option.label}
-              isOptionEqualToValue={(option, value) => option.value === value.value}
-              renderInput={(params) => <TextField {...(params as any)} label="Conversation Status" placeholder="Type to filter statuses" />}
-            />
-
-            <Box>
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.75, fontWeight: 700 }}>
-                Lead Type
-              </Typography>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Box
-                  sx={{
-                    width: 14,
-                    height: 14,
-                    borderRadius: '50%',
-                    bgcolor: getLeadTypeColor(getLeadTypeFromStatus(form.conversationStatus))
-                  }}
-                />
-                <Typography variant="body2" color="text.secondary">
-                  Auto-set from selected status
-                </Typography>
-              </Box>
-            </Box>
-
-            <TextField
-              label="Conversation notes"
-              value={form.notes}
-              onChange={(event) => setForm((prev) => ({ ...prev, notes: event.target.value }))}
-              multiline
-              minRows={3}
-              fullWidth
-            />
-
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-              <TextField
-                label="Reminder"
-                type="datetime-local"
-                value={form.reminderAt}
-                onChange={(event) => setForm((prev) => ({ ...prev, reminderAt: event.target.value }))}
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-              />
-              <TextField
-                label="Last contacted"
-                type="datetime-local"
-                value={form.lastContactedAt}
-                onChange={(event) => setForm((prev) => ({ ...prev, lastContactedAt: event.target.value }))}
-                fullWidth
-                InputLabelProps={{ shrink: true }}
-              />
-            </Stack>
-
-            <FormControl fullWidth>
-              <InputLabel id="reminder-done-label">Reminder Status</InputLabel>
-              <Select
-                labelId="reminder-done-label"
-                label="Reminder Status"
-                value={form.reminderDone ? 'done' : 'pending'}
-                onChange={(event) => setForm((prev) => ({ ...prev, reminderDone: event.target.value === 'done' }))}
-              >
-                <MenuItem value="pending">Pending</MenuItem>
-                <MenuItem value="done">Done</MenuItem>
-              </Select>
-            </FormControl>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setEditingUser(null)} color="inherit">
-            Cancel
-          </Button>
-          <Button variant="contained" onClick={saveConversation} disabled={saving || !editingUser}>
-            {saving ? 'Saving...' : 'Save'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
       <Dialog fullWidth maxWidth="sm" open={isAddUserOpen} onClose={() => setIsAddUserOpen(false)}>
         <DialogTitle>Add New User</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Name"
-              value={newUserForm.name}
-              onChange={(event) => setNewUserForm((prev) => ({ ...prev, name: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              label="Email"
-              type="email"
-              value={newUserForm.email}
-              onChange={(event) => setNewUserForm((prev) => ({ ...prev, email: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              label="Phone"
-              value={newUserForm.phone}
-              onChange={(event) => setNewUserForm((prev) => ({ ...prev, phone: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              label="City"
-              value={newUserForm.city}
-              onChange={(event) => setNewUserForm((prev) => ({ ...prev, city: event.target.value }))}
-              fullWidth
-            />
+            <TextField id="new-user-name" name="new_user_name" label="Name" value={newUserForm.name} onChange={(event) => setNewUserForm((prev) => ({ ...prev, name: event.target.value }))} fullWidth autoComplete="section-new-user name" />
+            <TextField id="new-user-email" name="new_user_email" label="Email" type="email" value={newUserForm.email} onChange={(event) => setNewUserForm((prev) => ({ ...prev, email: event.target.value }))} fullWidth autoComplete="section-new-user email" />
+            <TextField id="new-user-phone" name="new_user_phone" label="Phone" value={newUserForm.phone} onChange={(event) => setNewUserForm((prev) => ({ ...prev, phone: event.target.value }))} fullWidth autoComplete="section-new-user tel" />
+            <TextField id="new-user-city" name="new_user_city" label="City" value={newUserForm.city} onChange={(event) => setNewUserForm((prev) => ({ ...prev, city: event.target.value }))} fullWidth autoComplete="section-new-user address-level2" />
             <FormControl fullWidth>
               {isEmployeeSession ? (
                 <TextField label="Role" value="student" fullWidth InputProps={{ readOnly: true }} />
@@ -1100,23 +459,18 @@ export default function AdminUsersPage() {
                     multiple
                     value={newUserForm.roles}
                     renderValue={(selected) => (selected as string[]).join(', ')}
-                    onChange={(event) => {
-                      const value = event.target.value;
-                      const roles = Array.isArray(value) ? value : String(value).split(',');
-                      const normalized = roles
-                        .map((role) => String(role).trim().toLowerCase())
-                        .filter((role): role is 'admin' | 'manager' | 'employee' =>
-                          ['admin', 'manager', 'employee'].includes(role)
-                        );
+                    onChange={(event) =>
                       setNewUserForm((prev) => ({
                         ...prev,
-                        roles: [...new Set(normalized)]
-                      }));
-                    }}
+                        roles: normalizePanelRoles(event.target.value, allowedRoleNames)
+                      }))
+                    }
                   >
-                    <MenuItem value="employee">Employee</MenuItem>
-                    <MenuItem value="manager">Manager</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
+                    {enabledRoleOptions.map((role) => (
+                      <MenuItem key={role.id} value={role.roleName}>
+                        {role.name}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </>
               )}
@@ -1155,11 +509,7 @@ export default function AdminUsersPage() {
             <TextField
               label="Password"
               type="password"
-              helperText={
-                newUserForm.roles.length > 0
-                  ? 'Required (min 6 chars) for admin-panel roles'
-                  : 'Optional for students'
-              }
+              helperText={newUserForm.roles.length > 0 ? 'Required (min 6 chars) for admin-panel roles' : 'Optional for students'}
               value={newUserForm.password}
               onChange={(event) => setNewUserForm((prev) => ({ ...prev, password: event.target.value }))}
               fullWidth
@@ -1176,35 +526,14 @@ export default function AdminUsersPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog fullWidth maxWidth="sm" open={Boolean(editingAccountUser)} onClose={() => setEditingAccountUser(null)}>
+      <Dialog fullWidth maxWidth="sm" open={Boolean(editingUser)} onClose={() => setEditingUser(null)}>
         <DialogTitle>Edit User</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
-            <TextField
-              label="Name"
-              value={editUserForm.name}
-              onChange={(event) => setEditUserForm((prev) => ({ ...prev, name: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              label="Email"
-              type="email"
-              value={editUserForm.email}
-              onChange={(event) => setEditUserForm((prev) => ({ ...prev, email: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              label="Phone"
-              value={editUserForm.phone}
-              onChange={(event) => setEditUserForm((prev) => ({ ...prev, phone: event.target.value }))}
-              fullWidth
-            />
-            <TextField
-              label="City"
-              value={editUserForm.city}
-              onChange={(event) => setEditUserForm((prev) => ({ ...prev, city: event.target.value }))}
-              fullWidth
-            />
+            <TextField id="edit-user-name" name="edit_user_name" label="Name" value={editUserForm.name} onChange={(event) => setEditUserForm((prev) => ({ ...prev, name: event.target.value }))} fullWidth autoComplete="section-edit-user name" />
+            <TextField id="edit-user-email" name="edit_user_email" label="Email" type="email" value={editUserForm.email} onChange={(event) => setEditUserForm((prev) => ({ ...prev, email: event.target.value }))} fullWidth autoComplete="section-edit-user email" />
+            <TextField id="edit-user-phone" name="edit_user_phone" label="Phone" value={editUserForm.phone} onChange={(event) => setEditUserForm((prev) => ({ ...prev, phone: event.target.value }))} fullWidth autoComplete="section-edit-user tel" />
+            <TextField id="edit-user-city" name="edit_user_city" label="City" value={editUserForm.city} onChange={(event) => setEditUserForm((prev) => ({ ...prev, city: event.target.value }))} fullWidth autoComplete="section-edit-user address-level2" />
             <FormControl fullWidth>
               <InputLabel id="edit-user-role-label">Roles</InputLabel>
               <Select
@@ -1213,23 +542,18 @@ export default function AdminUsersPage() {
                 multiple
                 value={editUserForm.roles}
                 renderValue={(selected) => (selected as string[]).join(', ')}
-                onChange={(event) => {
-                  const value = event.target.value;
-                  const roles = Array.isArray(value) ? value : String(value).split(',');
-                  const normalized = roles
-                    .map((role) => String(role).trim().toLowerCase())
-                    .filter((role): role is 'admin' | 'manager' | 'employee' =>
-                      ['admin', 'manager', 'employee'].includes(role)
-                    );
+                onChange={(event) =>
                   setEditUserForm((prev) => ({
                     ...prev,
-                    roles: [...new Set(normalized)]
-                  }));
-                }}
+                    roles: normalizePanelRoles(event.target.value, allowedRoleNames)
+                  }))
+                }
               >
-                <MenuItem value="employee">Employee</MenuItem>
-                <MenuItem value="manager">Manager</MenuItem>
-                <MenuItem value="admin">Admin</MenuItem>
+                {enabledRoleOptions.map((role) => (
+                  <MenuItem key={role.id} value={role.roleName}>
+                    {role.name}
+                  </MenuItem>
+                ))}
               </Select>
             </FormControl>
             <FormControl fullWidth>
@@ -1272,7 +596,7 @@ export default function AdminUsersPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setEditingAccountUser(null)} color="inherit">
+          <Button onClick={() => setEditingUser(null)} color="inherit">
             Cancel
           </Button>
           <Button onClick={saveUserEdit} variant="contained" disabled={updatingUser}>

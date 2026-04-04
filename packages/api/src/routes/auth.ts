@@ -7,6 +7,7 @@ import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import { pool } from '../config/database';
 import { env } from '../config/env';
 import { isMailerConfigured, sendOtpEmail } from '../services/mailer';
+import { ensureEntitiesTable } from './entities';
 
 const router = Router();
 const UPLOAD_ROOT = path.resolve(__dirname, '../../uploads');
@@ -107,7 +108,9 @@ function generateOtp() {
 }
 
 type PanelRole = 'admin' | 'manager' | 'employee';
+type BaseUserRole = 'student' | 'uploaded';
 const PANEL_ROLE_PRIORITY: PanelRole[] = ['admin', 'manager', 'employee'];
+let ensureAdminRolesAccessPromise: Promise<void> | null = null;
 
 function parseCsv(value: unknown): string[] {
   if (!value) return [];
@@ -117,8 +120,139 @@ function parseCsv(value: unknown): string[] {
     .filter(Boolean);
 }
 
-function toPanelRoles(input: unknown): PanelRole[] {
-  const valid = new Set<PanelRole>(['admin', 'manager', 'employee']);
+async function ensureAdminRolesAccessTable() {
+  if (!ensureAdminRolesAccessPromise) {
+    ensureAdminRolesAccessPromise = (async () => {
+      await pool.query(
+        `ALTER TABLE users
+         MODIFY COLUMN role VARCHAR(120) NULL DEFAULT 'student'`
+      );
+
+      const [leadNameColumn] = await pool.query<RowDataPacket[]>(
+        `SHOW COLUMNS FROM users LIKE 'lead_name'`
+      );
+      if (!leadNameColumn.length) {
+        await pool.query(`ALTER TABLE users ADD COLUMN lead_name VARCHAR(255) NULL AFTER city`);
+      }
+
+      const [leadFromColumn] = await pool.query<RowDataPacket[]>(
+        `SHOW COLUMNS FROM users LIKE 'lead_from'`
+      );
+      if (!leadFromColumn.length) {
+        await pool.query(`ALTER TABLE users ADD COLUMN lead_from VARCHAR(255) NULL AFTER lead_name`);
+      }
+
+      const [leadEntityIdColumn] = await pool.query<RowDataPacket[]>(
+        `SHOW COLUMNS FROM users LIKE 'lead_entity_id'`
+      );
+      if (!leadEntityIdColumn.length) {
+        await pool.query(`ALTER TABLE users ADD COLUMN lead_entity_id INT NULL AFTER lead_from`);
+      }
+
+      await pool.query(
+        `ALTER TABLE user_admin_roles
+         MODIFY COLUMN role VARCHAR(120) NOT NULL`
+      );
+
+      await pool.query(
+        `CREATE TABLE IF NOT EXISTS admin_roles (
+          id INT AUTO_INCREMENT PRIMARY KEY,
+          name VARCHAR(255) NOT NULL,
+          role_name VARCHAR(120) NOT NULL UNIQUE,
+          role_type VARCHAR(40) NOT NULL DEFAULT 'Default',
+          description TEXT NULL,
+          enabled TINYINT(1) NOT NULL DEFAULT 1,
+          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+          updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+          INDEX idx_admin_roles_enabled (enabled)
+        )`
+      );
+
+      const [roleTypeColumn] = await pool.query<RowDataPacket[]>(
+        `SHOW COLUMNS FROM admin_roles LIKE 'role_type'`
+      );
+      if (!roleTypeColumn.length) {
+        await pool.query(`ALTER TABLE admin_roles ADD COLUMN role_type VARCHAR(40) NOT NULL DEFAULT 'Default' AFTER role_name`);
+      }
+
+      await pool.query(
+        `INSERT INTO admin_roles (name, role_name, role_type, description, enabled)
+         VALUES
+           ('Admin', 'admin', 'Admin', 'Full access to admin operations.', 1),
+           ('Manager', 'manager', 'Manager', 'Operational access for management workflows.', 1),
+           ('Employee', 'employee', 'Employee', 'Execution access for assigned operational work.', 1),
+           ('Student', 'student', 'Student', 'Registered student user role.', 1)
+         ON DUPLICATE KEY UPDATE
+           name = VALUES(name),
+           role_type = VALUES(role_type),
+           description = VALUES(description),
+           enabled = VALUES(enabled)`
+      );
+    })().catch((err) => {
+      ensureAdminRolesAccessPromise = null;
+      throw err;
+    });
+  }
+
+  await ensureAdminRolesAccessPromise;
+}
+
+async function validateLeadEntity(entityId: number) {
+  await ensureEntitiesTable();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT e.id
+     FROM entities e
+     INNER JOIN admin_roles ar ON ar.id = e.entity_role_id
+     WHERE e.id = ? AND ar.role_type = 'Entity'
+     LIMIT 1`,
+    [entityId]
+  );
+  return rows.length > 0;
+}
+
+async function getEnabledAdminRoleNames() {
+  await ensureAdminRolesAccessTable();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT role_name AS roleName
+     FROM admin_roles
+     WHERE enabled = 1
+     ORDER BY role_name ASC`
+  );
+  return new Set(
+    rows
+      .map((row) => String(row.roleName || '').trim().toLowerCase())
+      .filter(Boolean)
+  );
+}
+
+async function getEnabledAdminRoleTypeMap() {
+  await ensureAdminRolesAccessTable();
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `SELECT role_name AS roleName, role_type AS roleType
+     FROM admin_roles
+     WHERE enabled = 1
+     ORDER BY role_name ASC`
+  );
+
+  return new Map(
+    rows
+      .map((row) => [
+        String(row.roleName || '').trim().toLowerCase(),
+        String(row.roleType || '').trim().toLowerCase()
+      ] as const)
+      .filter(([roleName, roleType]) => Boolean(roleName) && Boolean(roleType))
+  );
+}
+
+async function getEnabledAssignableRoleNames() {
+  const enabledRoles = await getEnabledAdminRoleNames();
+  return new Set<string>(
+    Array.from(enabledRoles).filter((role) => role !== 'student' && role !== 'uploaded')
+  );
+}
+
+async function toPanelRoles(input: unknown): Promise<string[]> {
+  const valid = await getEnabledAssignableRoleNames();
   const values = Array.isArray(input) ? input : [input];
   const roles = values
     .flatMap((value) => (Array.isArray(value) ? value : [value]))
@@ -127,13 +261,21 @@ function toPanelRoles(input: unknown): PanelRole[] {
         .split(',')
         .map((item) => item.trim().toLowerCase())
     )
-    .filter((value): value is PanelRole => valid.has(value as PanelRole));
+    .filter((value) => valid.has(value));
   return [...new Set(roles)];
 }
 
-function getPrimaryPanelRole(roles: PanelRole[]): PanelRole | null {
+function getPrimaryPanelRole(roles: string[]): string | null {
   for (const role of PANEL_ROLE_PRIORITY) {
     if (roles.includes(role)) return role;
+  }
+  return roles[0] || null;
+}
+
+function toBaseUserRole(input: unknown): BaseUserRole | null {
+  const value = String(input || '').trim().toLowerCase();
+  if (value === 'student' || value === 'uploaded') {
+    return value;
   }
   return null;
 }
@@ -281,17 +423,26 @@ router.post('/admin-login', async (req, res) => {
   }
 
   const user = rows[0];
-  const mappedRoles = parseCsv(user.rolesCsv).filter((role): role is PanelRole =>
-    ['admin', 'manager', 'employee'].includes(role)
-  );
-  const fallbackRole = ['admin', 'manager', 'employee'].includes(String(user.role || '').toLowerCase())
-    ? ([String(user.role).toLowerCase()] as PanelRole[])
+  const enabledRoleNames = await getEnabledAdminRoleNames();
+  const enabledRoleTypeMap = await getEnabledAdminRoleTypeMap();
+  const mappedRoles = parseCsv(user.rolesCsv).filter((role) => enabledRoleNames.has(role));
+  const fallbackRole = enabledRoleNames.has(String(user.role || '').toLowerCase())
+    ? [String(user.role).toLowerCase()]
     : [];
   const panelRoles = [...new Set([...mappedRoles, ...fallbackRole])];
-  const primaryRole = getPrimaryPanelRole(panelRoles);
+  const normalizedPanelRoleTypes = [...new Set(
+    panelRoles
+      .map((role) => enabledRoleTypeMap.get(role) || '')
+      .filter((roleType): roleType is string => Boolean(roleType))
+  )];
+  const primaryRole = getPrimaryPanelRole(
+    normalizedPanelRoleTypes.map((roleType) => (roleType === 'superadmin' ? 'admin' : roleType)).filter(
+      (roleType): roleType is PanelRole => roleType === 'admin' || roleType === 'manager' || roleType === 'employee'
+    )
+  );
 
   if (!primaryRole) {
-    return res.status(403).json({ error: 'Admin panel access requires admin/manager/employee role' });
+    return res.status(403).json({ error: 'Admin panel access requires an enabled role from admin_roles' });
   }
 
   const hash = user.password_hash ? String(user.password_hash) : '';
@@ -318,31 +469,53 @@ router.post('/admin-login', async (req, res) => {
     phone: user.phone,
     city: user.city,
     role: primaryRole,
-    roles: panelRoles
+    roles: panelRoles,
+    roleTypes: normalizedPanelRoleTypes
   });
 });
 
-router.get('/leads-summary', async (_req, res) => {
+router.get('/leads-summary', async (req, res) => {
+  const viewerUserId = Number(req.query.viewerUserId);
+  const reminderWhereParts = [
+    `LOWER(COALESCE(u.role, 'student')) = 'uploaded'`,
+    `lc.reminder_at IS NOT NULL`,
+    `DATE(lc.reminder_at) = CURDATE()`,
+    `lc.reminder_done = 0`
+  ];
+  const reminderValues: number[] = [];
+
+  if (!Number.isNaN(viewerUserId) && viewerUserId > 0) {
+    reminderWhereParts.push(`lc.assigned_employee_user_id = ?`);
+    reminderValues.push(viewerUserId);
+  }
+
   const [dailyRows] = await pool.query<RowDataPacket[]>(
     `SELECT DATE(created_at) AS day, COUNT(*) AS count
      FROM users
-     WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
+     WHERE LOWER(COALESCE(role, 'student')) <> 'uploaded'
+       AND created_at >= DATE_SUB(CURDATE(), INTERVAL 13 DAY)
      GROUP BY DATE(created_at)
      ORDER BY day ASC`
   );
 
-  const [recentRows] = await pool.query<RowDataPacket[]>(
+  const [recentLeadRows] = await pool.query<RowDataPacket[]>(
     `SELECT id, name, email, phone, city, role, created_at AS createdAt
      FROM users
+     WHERE LOWER(COALESCE(role, 'student')) = 'uploaded'
      ORDER BY created_at DESC
      LIMIT 20`
   );
 
-  const [totalRows] = await pool.query<RowDataPacket[]>('SELECT COUNT(*) AS total FROM users');
+  const [totalRows] = await pool.query<RowDataPacket[]>(
+    `SELECT COUNT(*) AS total
+     FROM users
+     WHERE LOWER(COALESCE(role, 'student')) = 'uploaded'`
+  );
   const [recentLoginRows] = await pool.query<RowDataPacket[]>(
     `SELECT COUNT(*) AS total
      FROM users
-     WHERE last_login_at IS NOT NULL
+     WHERE LOWER(COALESCE(role, 'student')) <> 'uploaded'
+       AND last_login_at IS NOT NULL
        AND last_login_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`
   );
   const [locationRows] = await pool.query<RowDataPacket[]>(
@@ -350,6 +523,7 @@ router.get('/leads-summary', async (_req, res) => {
         TRIM(COALESCE(NULLIF(city, ''), 'Unknown')) AS location,
         COUNT(*) AS count
      FROM users
+     WHERE LOWER(COALESCE(role, 'student')) <> 'uploaded'
      GROUP BY TRIM(COALESCE(NULLIF(city, ''), 'Unknown'))
      ORDER BY count DESC, location ASC
      LIMIT 12`
@@ -364,14 +538,13 @@ router.get('/leads-summary', async (_req, res) => {
             lc.lead_type AS leadType,
             lc.looking_for AS lookingFor,
             lc.notes,
-            lc.reminder_at AS reminderAt
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
-     WHERE lc.reminder_at IS NOT NULL
-       AND DATE(lc.reminder_at) = CURDATE()
-       AND lc.reminder_done = 0
+     WHERE ${reminderWhereParts.join('\n       AND ')}
      ORDER BY lc.reminder_at ASC
-     LIMIT 50`
+     LIMIT 50`,
+    reminderValues
   );
 
   const countsByDay = new Map<string, number>();
@@ -392,7 +565,7 @@ router.get('/leads-summary', async (_req, res) => {
     totalLeads: Number(totalRows[0]?.total || 0),
     recentLoginCount: Number(recentLoginRows[0]?.total || 0),
     dailyRegistrations,
-    recentUsers: recentRows,
+    recentLeads: recentLeadRows,
     todaysRemindersCount: todayReminderRows.length,
     todaysReminders: todayReminderRows.map((row) => ({
       id: Number(row.id),
@@ -413,17 +586,71 @@ router.get('/leads-summary', async (_req, res) => {
   });
 });
 
-router.get('/users', async (_req, res) => {
+router.get('/users', async (req, res) => {
+  await ensureAdminRolesAccessTable();
+  await ensureEntitiesTable();
+  const kind = String(req.query.kind || 'all').trim().toLowerCase();
+  const entityId = Number(req.query.entityId);
+  const viewerRoles = String(req.query.viewerRoles || '')
+    .split(',')
+    .map((value) => value.trim().toLowerCase())
+    .filter(Boolean);
+  const whereParts: string[] = [];
+  const values: Array<string | number> = [];
+
+  if (kind === 'registered') {
+    whereParts.push(`LOWER(COALESCE(u.role, 'student')) <> 'uploaded'`);
+  } else if (kind === 'leads') {
+    whereParts.push(`LOWER(COALESCE(u.role, 'student')) = 'uploaded'`);
+  }
+
+  if (kind === 'leads' && entityId && !Number.isNaN(entityId)) {
+    whereParts.push('u.lead_entity_id = ?');
+    values.push(entityId);
+  }
+
+  if (kind === 'leads' && viewerRoles.length) {
+    whereParts.push(`ar.role_type = 'Entity'`);
+    whereParts.push(`LOWER(COALESCE(ar.role_name, '')) IN (${viewerRoles.map(() => '?').join(', ')})`);
+    values.push(...viewerRoles);
+  }
+
+  if (kind === 'registered' && viewerRoles.length) {
+    whereParts.push(
+      `EXISTS (
+         SELECT 1
+         FROM user_admin_roles ur_entity
+         INNER JOIN admin_roles ar_entity ON ar_entity.role_name = ur_entity.role
+         WHERE ur_entity.user_id = u.id
+           AND ar_entity.role_type = 'Entity'
+           AND LOWER(ur_entity.role) IN (${viewerRoles.map(() => '?').join(', ')})
+       )`
+    );
+    values.push(...viewerRoles);
+  }
+
+  const whereClause = whereParts.length ? `WHERE ${whereParts.join(' AND ')}` : '';
+  const limitClause = kind === 'leads' ? '' : 'LIMIT 500';
+
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
+            u.lead_name AS leadName,
+            u.lead_from AS leadFrom,
+            u.lead_entity_id AS leadEntityId,
+            e.entity_name AS leadEntityName,
+            ar.role_name AS leadEntityRoleName,
             GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv,
             GROUP_CONCAT(DISTINCT uca.country_id ORDER BY uca.country_id SEPARATOR ',') AS countryIdsCsv
      FROM users u
      LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
      LEFT JOIN user_country_access uca ON uca.user_id = u.id
+     LEFT JOIN entities e ON e.id = u.lead_entity_id
+     LEFT JOIN admin_roles ar ON ar.id = e.entity_role_id
+     ${whereClause}
      GROUP BY u.id
      ORDER BY u.created_at DESC
-     LIMIT 500`
+     ${limitClause}`,
+    values
   );
   res.json(
     rows.map((row) => ({
@@ -435,21 +662,37 @@ router.get('/users', async (_req, res) => {
 });
 
 router.post('/users', async (req, res) => {
-  const { name, email, phone, city, role, roles, countryIds, password } = req.body || {};
+  const { name, email, phone, city, role, roles, countryIds, password, leadName, leadFrom, leadEntityId } = req.body || {};
 
   const nameValue = String(name || '').trim();
-  const emailValue = String(email || '').trim().toLowerCase();
+  const emailValue = email ? String(email).trim().toLowerCase() : null;
   const phoneValue = phone ? String(phone).trim() : null;
   const cityValue = city ? String(city).trim() : null;
+  const baseRole = toBaseUserRole(role);
+  const isLeadCreation = baseRole === 'uploaded';
+  const leadNameValue = leadName ? String(leadName).trim() : null;
+  const leadFromValue = leadFrom ? String(leadFrom).trim() : null;
+  const leadEntityIdValue =
+    leadEntityId === undefined || leadEntityId === null || String(leadEntityId).trim() === ''
+      ? null
+      : Number(leadEntityId);
 
-  if (!nameValue || !emailValue) {
+  if (!nameValue) {
+    return res.status(400).json({ error: 'name is required' });
+  }
+  if (!isLeadCreation && !emailValue) {
     return res.status(400).json({ error: 'name and email are required' });
   }
+  if (isLeadCreation && (leadNameValue || leadFromValue || leadEntityIdValue !== null)) {
+    if (!leadNameValue || !leadFromValue || leadEntityIdValue === null || Number.isNaN(leadEntityIdValue)) {
+      return res.status(400).json({ error: 'leadName, leadFrom, and leadEntityId are required for manual lead creation in a lead list' });
+    }
+  }
 
-  const selectedRoles = toPanelRoles(roles);
-  const fallbackRole = toPanelRoles(role);
+  const selectedRoles = await toPanelRoles(roles);
+  const fallbackRole = await toPanelRoles(role);
   const mergedRoles = [...new Set([...selectedRoles, ...fallbackRole])];
-  const roleValue = getPrimaryPanelRole(mergedRoles) || 'student';
+  const roleValue = getPrimaryPanelRole(mergedRoles) || baseRole || 'student';
   const passwordValue = password ? String(password) : '';
 
   const needsPassword = mergedRoles.length > 0;
@@ -459,9 +702,21 @@ router.post('/users', async (req, res) => {
 
   const passwordHash = passwordValue ? await bcrypt.hash(passwordValue, 10) : null;
 
-  const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailValue]);
-  if (existing.length) {
-    return res.status(409).json({ error: 'User with this email already exists' });
+  if (isLeadCreation && leadEntityIdValue !== null && !Number.isNaN(leadEntityIdValue)) {
+    const [entityRows] = await pool.query<RowDataPacket[]>(
+      `SELECT id FROM entities WHERE id = ? LIMIT 1`,
+      [leadEntityIdValue]
+    );
+    if (!entityRows.length) {
+      return res.status(400).json({ error: 'Selected lead entity is invalid' });
+    }
+  }
+
+  if (emailValue) {
+    const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailValue]);
+    if (existing.length) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
   }
   if (phoneValue) {
     const [phoneExisting] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE phone = ? LIMIT 1', [phoneValue]);
@@ -471,9 +726,9 @@ router.post('/users', async (req, res) => {
   }
 
   const [result] = await pool.query<ResultSetHeader>(
-    `INSERT INTO users (name, email, phone, city, role, password_hash)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [nameValue, emailValue, phoneValue, cityValue, roleValue, passwordHash]
+    `INSERT INTO users (name, email, phone, city, lead_name, lead_from, lead_entity_id, role, password_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [nameValue, emailValue, phoneValue, cityValue, leadNameValue, leadFromValue, leadEntityIdValue, roleValue, passwordHash]
   );
 
   const id = (result as ResultSetHeader).insertId;
@@ -504,11 +759,18 @@ router.post('/users', async (req, res) => {
 
   const [rows] = await pool.query<RowDataPacket[]>(
     `SELECT u.id, u.name, u.email, u.phone, u.city, u.role, u.created_at AS createdAt, u.last_login_at AS lastLoginAt,
+            u.lead_name AS leadName,
+            u.lead_from AS leadFrom,
+            u.lead_entity_id AS leadEntityId,
+            e.entity_name AS leadEntityName,
+            ar.role_name AS leadEntityRoleName,
             GROUP_CONCAT(DISTINCT ur.role ORDER BY ur.role SEPARATOR ',') AS rolesCsv,
             GROUP_CONCAT(DISTINCT uca.country_id ORDER BY uca.country_id SEPARATOR ',') AS countryIdsCsv
      FROM users u
      LEFT JOIN user_admin_roles ur ON ur.user_id = u.id
      LEFT JOIN user_country_access uca ON uca.user_id = u.id
+     LEFT JOIN entities e ON e.id = u.lead_entity_id
+     LEFT JOIN admin_roles ar ON ar.id = e.entity_role_id
      WHERE u.id = ?
      GROUP BY u.id
      LIMIT 1`,
@@ -524,7 +786,9 @@ router.post('/users', async (req, res) => {
 });
 
 router.post('/users/bulk', async (req, res) => {
+  await ensureAdminRolesAccessTable();
   const inputUsers = Array.isArray(req.body?.users) ? req.body.users : [];
+  const leadImportMeta = req.body?.leadImportMeta || {};
   if (!inputUsers.length) {
     return res.status(400).json({ error: 'users array is required' });
   }
@@ -532,35 +796,61 @@ router.post('/users/bulk', async (req, res) => {
     return res.status(400).json({ error: 'Maximum 500 users per upload' });
   }
 
+  const leadName = String(leadImportMeta.leadName || '').trim();
+  const leadFrom = String(leadImportMeta.leadFrom || '').trim();
+  const leadEntityId = Number(leadImportMeta.leadEntityId);
+
+  if (!leadName || !leadFrom || !leadEntityId || Number.isNaN(leadEntityId)) {
+    return res.status(400).json({ error: 'leadName, leadFrom, and leadEntityId are required for CSV upload' });
+  }
+
+  const validLeadEntity = await validateLeadEntity(leadEntityId);
+  if (!validLeadEntity) {
+    return res.status(400).json({ error: 'leadEntityId must reference a valid entity role' });
+  }
+
   const created: RowDataPacket[] = [];
   const failed: Array<{ row: number; email?: string; reason: string }> = [];
+  const seenEmails = new Set<string>();
+  const seenPhones = new Set<string>();
 
   for (let index = 0; index < inputUsers.length; index += 1) {
     const source = inputUsers[index] || {};
     const rowNumber = index + 2; // assumes row 1 is header in CSV
 
     const nameValue = String(source.name || '').trim();
-    const emailValue = String(source.email || '').trim().toLowerCase();
+    const emailValue = source.email ? String(source.email).trim().toLowerCase() : null;
     const phoneValue = source.phone ? String(source.phone).trim() : null;
-    const cityValue = 'Hyderabad';
+    const cityValue = null;
 
-    if (!nameValue || !emailValue) {
-      failed.push({ row: rowNumber, email: emailValue || undefined, reason: 'name and email are required' });
+    if (!nameValue) {
+      failed.push({ row: rowNumber, email: emailValue || undefined, reason: 'name is required' });
+      continue;
+    }
+
+    if (emailValue && seenEmails.has(emailValue)) {
+      failed.push({ row: rowNumber, email: emailValue, reason: 'duplicate email in upload' });
+      continue;
+    }
+    if (phoneValue && seenPhones.has(phoneValue)) {
+      failed.push({ row: rowNumber, email: emailValue || undefined, reason: 'duplicate phone in upload' });
       continue;
     }
 
     const roleValue = 'uploaded';
     const passwordValue = 'Student@123';
 
-    const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailValue]);
-    if (existing.length) {
-      failed.push({ row: rowNumber, email: emailValue, reason: 'user already exists' });
-      continue;
+    if (emailValue) {
+      const [existing] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE email = ? LIMIT 1', [emailValue]);
+      if (existing.length) {
+        failed.push({ row: rowNumber, email: emailValue, reason: 'duplicate email skipped' });
+        continue;
+      }
     }
     if (phoneValue) {
       const [phoneExisting] = await pool.query<RowDataPacket[]>('SELECT id FROM users WHERE phone = ? LIMIT 1', [phoneValue]);
       if (phoneExisting.length) {
-        failed.push({ row: rowNumber, email: emailValue, reason: 'phone already exists' });
+        failed.push({ row: rowNumber, email: emailValue || undefined, reason: 'duplicate phone skipped' });
         continue;
       }
     }
@@ -569,9 +859,9 @@ router.post('/users/bulk', async (req, res) => {
 
     try {
       const [result] = await pool.query<ResultSetHeader>(
-        `INSERT INTO users (name, email, phone, city, role, password_hash)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-        [nameValue, emailValue, phoneValue, cityValue, roleValue, passwordHash]
+        `INSERT INTO users (name, email, phone, city, lead_name, lead_from, lead_entity_id, role, password_hash)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [nameValue, emailValue, phoneValue, cityValue, leadName, leadFrom, leadEntityId, roleValue, passwordHash]
       );
 
       const id = (result as ResultSetHeader).insertId;
@@ -595,11 +885,13 @@ router.post('/users/bulk', async (req, res) => {
           roles: parseCsv(rows[0].rolesCsv),
           countryIds: parseCsv(rows[0].countryIdsCsv).map((item) => Number(item)).filter((item) => !Number.isNaN(item))
         });
+        if (emailValue) seenEmails.add(emailValue);
+        if (phoneValue) seenPhones.add(phoneValue);
       }
     } catch (err) {
       failed.push({
         row: rowNumber,
-        email: emailValue,
+        email: emailValue || undefined,
         reason: err instanceof Error ? err.message : 'failed to create user'
       });
     }
@@ -663,12 +955,13 @@ router.patch('/users/:id', async (req, res) => {
     values.push(city ? String(city).trim() : null);
   }
 
-  const selectedRoles = roles !== undefined ? toPanelRoles(roles) : [];
-  const fallbackRole = role !== undefined ? toPanelRoles(role) : [];
+  const selectedRoles = roles !== undefined ? await toPanelRoles(roles) : [];
+  const fallbackRole = role !== undefined ? await toPanelRoles(role) : [];
   const mergedRoles = roles !== undefined || role !== undefined ? [...new Set([...selectedRoles, ...fallbackRole])] : null;
+  const baseRole = role !== undefined ? toBaseUserRole(role) : null;
 
   if (mergedRoles) {
-    const roleValue = getPrimaryPanelRole(mergedRoles) || 'student';
+    const roleValue = getPrimaryPanelRole(mergedRoles) || baseRole || 'student';
     updates.push('role = ?');
     values.push(roleValue);
   }

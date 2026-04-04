@@ -5,6 +5,7 @@ import { Alert, Box, Chip, CircularProgress, IconButton, Skeleton, Stack, TableC
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EmployeeTask, LeadConversation, LeadUser, TodayReminder } from '../../lib/api';
 import { fetchEmployeeTasks, fetchLeadConversations, fetchLeadsSummary, fetchTaskAnalytics } from '../../lib/api';
+import { formatLocalTime } from '../../lib/datetime';
 import AdminDataTable from '../../components/admin/AdminDataTable';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
@@ -44,7 +45,7 @@ export default function AdminDashboardPage() {
   const [totalLeads, setTotalLeads] = useState(0);
   const [recentLoginCount, setRecentLoginCount] = useState(0);
   const [dailyRegistrations, setDailyRegistrations] = useState<Array<{ day: string; count: number }>>([]);
-  const [recentUsers, setRecentUsers] = useState<LeadUser[]>([]);
+  const [recentLeads, setRecentLeads] = useState<LeadUser[]>([]);
   const [todaysRemindersCount, setTodaysRemindersCount] = useState(0);
   const [todaysReminders, setTodaysReminders] = useState<TodayReminder[]>([]);
   const [leadConversations, setLeadConversations] = useState<LeadConversation[]>([]);
@@ -74,16 +75,16 @@ export default function AdminDashboardPage() {
     try {
       const isEmployee = adminUser?.role === 'employee';
       const [summary, tasks, analytics, conversations] = await Promise.all([
-        fetchLeadsSummary(),
+        fetchLeadsSummary({ viewerUserId: adminUser?.id }),
         isEmployee && adminUser?.id ? fetchEmployeeTasks(adminUser.id) : Promise.resolve([]),
         isEmployee ? Promise.resolve(null) : fetchTaskAnalytics(),
-        fetchLeadConversations()
+        fetchLeadConversations('leads')
       ]);
       if (!mountedRef.current) return;
       setTotalLeads(summary.totalLeads);
       setRecentLoginCount(summary.recentLoginCount);
       setDailyRegistrations(summary.dailyRegistrations);
-      setRecentUsers(summary.recentUsers);
+      setRecentLeads(summary.recentLeads);
       setTodaysRemindersCount(summary.todaysRemindersCount);
       setTodaysReminders(summary.todaysReminders);
       setLeadConversations(conversations);
@@ -151,14 +152,6 @@ export default function AdminDashboardPage() {
   const underProcessTasks = useMemo(
     () => employeeTasks.filter((task) => (task.taskStatus || 'under_process') === 'under_process'),
     [employeeTasks]
-  );
-  const recentStudentUsers = useMemo(
-    () =>
-      recentUsers.filter((user) => {
-        const role = String(user.role || '').toLowerCase();
-        return role === 'student' || role === 'uploaded';
-      }),
-    [recentUsers]
   );
   const activeBucketConversations = useMemo(
     () =>
@@ -297,19 +290,19 @@ export default function AdminDashboardPage() {
       {
         label: 'Total Leads',
         value: totalLeads,
-        helper: 'All registered users',
+        helper: 'Non-registered leads',
         icon: <PublicRounded fontSize="small" sx={{ color: '#0284c7' }} />
       },
       {
         label: 'Today',
         value: todayRegistrations,
-        helper: 'Registered today',
+        helper: 'Users registered today',
         icon: <TrendingUpRounded fontSize="small" sx={{ color: '#0369a1' }} />
       },
       {
         label: adminUser?.role === 'employee' ? 'My Bucket' : 'This Week',
         value: adminUser?.role === 'employee' ? myBucketCount : thisWeekRegistrations,
-        helper: adminUser?.role === 'employee' ? 'Leads assigned to my bucket' : 'Registrations in last 7 days',
+        helper: adminUser?.role === 'employee' ? 'Leads assigned to my bucket' : 'User registrations in last 7 days',
         icon: <TrendingUpRounded fontSize="small" sx={{ color: '#2563eb' }} />
       },
       ...(adminUser?.role === 'employee'
@@ -362,13 +355,13 @@ export default function AdminDashboardPage() {
             CRM Dashboard
           </Typography>
           <Typography className="admin-crm-hero__subtitle">
-            Monitor user leads, daily registrations, and recently registered users.
+            Monitor lead activity separately from registered user trends.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.2} className="admin-crm-hero__chips">
-          <span className="admin-crm-pill">Daily Lead Trend</span>
-          <span className="admin-crm-pill">Recent Registrations</span>
-          <span className="admin-crm-pill">User Details</span>
+          <span className="admin-crm-pill">Lead Pipeline</span>
+          <span className="admin-crm-pill">User Registrations</span>
+          <span className="admin-crm-pill">Lead Follow-ups</span>
         </Stack>
         <Box sx={{ position: 'absolute', top: 14, right: 14 }}>
           <Tooltip title="Refresh dashboard">
@@ -422,12 +415,12 @@ export default function AdminDashboardPage() {
                 <Box className="admin-line-chart">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="admin-line-chart__svg">
                     <polyline points={linePoints} fill="none" stroke="#2563eb" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
-                    {dailyRegistrations.map((item, index) => {
+                  {dailyRegistrations.map((item, index) => {
                       const x = dailyRegistrations.length === 1 ? 0 : (index / (dailyRegistrations.length - 1)) * 100;
                       const y = 100 - (item.count / dailyChartMax) * 100;
                       const dayLabel = new Date(item.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                       return (
-                        <Tooltip key={item.day} title={`${dayLabel}: ${item.count} users`} arrow placement="top">
+                        <Tooltip key={item.day} title={`${dayLabel}: ${item.count} registrations`} arrow placement="top">
                           <circle cx={x} cy={Math.max(0, Math.min(100, y))} r="1.45" fill="#0284c7" />
                         </Tooltip>
                       );
@@ -487,11 +480,9 @@ export default function AdminDashboardPage() {
               <Box className="admin-location-chart">
                 {usersByLocation.map((item) => (
                   <Box className="admin-location-chart__item" key={`top-${item.location}`}>
-                    <Tooltip title={`${item.location}: ${item.count} users`} arrow placement="top">
-                      <Box className="admin-location-chart__track">
-                        <Box className="admin-location-chart__bar" sx={{ height: `${Math.max(6, (item.count / locationChartMax) * 100)}%` }} />
-                      </Box>
-                    </Tooltip>
+                    <Box className="admin-location-chart__track" title={`${item.location}: ${item.count} registered users`}>
+                      <Box className="admin-location-chart__bar" sx={{ height: `${Math.max(6, (item.count / locationChartMax) * 100)}%` }} />
+                    </Box>
                     <Typography className="admin-location-chart__name" variant="caption">
                       {item.location}
                     </Typography>
@@ -804,7 +795,7 @@ export default function AdminDashboardPage() {
                     {reminder.userName}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {new Date(reminder.reminderAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatLocalTime(reminder.reminderAt, { hour: '2-digit', minute: '2-digit' })}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {reminder.conversationStatus}
@@ -869,7 +860,7 @@ export default function AdminDashboardPage() {
       <Box className="admin-panel">
         <Box className="admin-panel__head">
           <Typography variant="h6" fontWeight={800}>
-            Recent Leads Details
+            Recent Lead Details
           </Typography>
         </Box>
         <Box className="admin-panel__body">
@@ -877,7 +868,7 @@ export default function AdminDashboardPage() {
             Array.from({ length: 6 }).map((_, idx) => <Skeleton key={`lead-row-skeleton-${idx}`} height={36} />)
           ) : (
             <Stack spacing={1}>
-              {recentStudentUsers.slice(0, 12).map((user) => (
+              {recentLeads.slice(0, 12).map((user) => (
                 <Box className="admin-lead-row" key={`lead-row-${user.id}`}>
                   <Typography variant="body2" fontWeight={700}>
                     {user.name}
@@ -896,9 +887,9 @@ export default function AdminDashboardPage() {
                   </Typography>
                 </Box>
               ))}
-              {recentStudentUsers.length === 0 ? (
+              {recentLeads.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No recent student/uploaded leads found.
+                  No recent leads found.
                 </Typography>
               ) : null}
             </Stack>

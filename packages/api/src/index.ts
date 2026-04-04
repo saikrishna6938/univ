@@ -17,6 +17,8 @@ import leadConversationsRouter from './routes/leadConversations';
 import scholarshipsRouter from './routes/scholarships';
 import studyGuidesRouter from './routes/studyGuides';
 import examsRouter from './routes/exams';
+import adminRolesRouter from './routes/adminRoles';
+import entitiesRouter from './routes/entities';
 
 async function start() {
   await connectToDatabase();
@@ -53,6 +55,8 @@ async function start() {
   app.use('/api/study-guides', studyGuidesRouter);
   app.use('/api/exams', examsRouter);
   app.use('/api/lead-conversations', leadConversationsRouter);
+  app.use('/api/admin-roles', adminRolesRouter);
+  app.use('/api/entities', entitiesRouter);
 
   app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
     console.error(err);

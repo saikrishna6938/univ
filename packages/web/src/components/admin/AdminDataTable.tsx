@@ -28,34 +28,28 @@ export default function AdminDataTable({
     <TableContainer
       sx={{
         overflowX: 'auto',
+        overflowY: 'auto',
+        maxHeight: maxBodyHeight as number | string | undefined,
+        minHeight: minBodyHeight as number | string | undefined,
         ...containerSx
       }}
     >
       <Box sx={{ minWidth: tableMinWidth }}>
-        <Table size="small" sx={{ tableLayout }}>
+        <Table size="small" stickyHeader sx={{ tableLayout, ...bodySx }}>
           <TableHead
             sx={{
               backgroundColor: '#f8fafc',
-              '& .MuiTableCell-root': { fontWeight: 700 },
+              '& .MuiTableCell-root': {
+                fontWeight: 700,
+                backgroundColor: '#f8fafc'
+              },
               ...headerSx
             }}
           >
             {headerRow}
           </TableHead>
+          <TableBody>{bodyRows}</TableBody>
         </Table>
-
-        <Box
-          sx={{
-            overflowY: 'auto',
-            maxHeight: maxBodyHeight as number | string | undefined,
-            minHeight: minBodyHeight as number | string | undefined,
-            ...bodySx
-          }}
-        >
-          <Table size="small" sx={{ tableLayout }}>
-            <TableBody>{bodyRows}</TableBody>
-          </Table>
-        </Box>
       </Box>
     </TableContainer>
   );
