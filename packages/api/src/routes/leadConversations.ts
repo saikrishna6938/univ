@@ -161,6 +161,7 @@ async function ensureLeadConversationSchema() {
       );
 
       const userLeadColumns: Array<[string, string]> = [
+        ['lead_from', `ALTER TABLE users ADD COLUMN lead_from VARCHAR(255) NULL AFTER lead_name`],
         ['preferred_country', `ALTER TABLE users ADD COLUMN preferred_country VARCHAR(255) NULL AFTER lead_entity_id`],
         ['program_level', `ALTER TABLE users ADD COLUMN program_level VARCHAR(255) NULL AFTER preferred_country`],
         ['course_field', `ALTER TABLE users ADD COLUMN course_field VARCHAR(255) NULL AFTER program_level`],
@@ -737,18 +738,24 @@ router.put('/:userId', async (req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id

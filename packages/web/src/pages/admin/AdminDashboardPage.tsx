@@ -94,13 +94,13 @@ export default function AdminDashboardPage() {
       if (!mountedRef.current) return;
       setTotalLeads(summary.totalLeads);
       setRecentLoginCount(summary.recentLoginCount);
-      setDailyRegistrations(summary.dailyRegistrations);
-      setRecentLeads(summary.recentLeads);
+      setDailyRegistrations(Array.isArray(summary.dailyRegistrations) ? summary.dailyRegistrations : []);
+      setRecentLeads(Array.isArray(summary.recentLeads) ? summary.recentLeads : []);
       setTodaysRemindersCount(summary.todaysRemindersCount);
-      setTodaysReminders(summary.todaysReminders);
+      setTodaysReminders(Array.isArray(summary.todaysReminders) ? summary.todaysReminders : []);
       setLeadConversations(conversations);
-      setUsersByLocation(summary.usersByLocation);
-      setEmployeeTasks(tasks);
+      setUsersByLocation(Array.isArray(summary.usersByLocation) ? summary.usersByLocation : []);
+      setEmployeeTasks(Array.isArray(tasks) ? tasks : []);
       setEmployeeTaskCounts(analytics?.employeeTasks || []);
       setCountryTaskCounts(analytics?.countryTasks || []);
       setGlobalTaskAging(analytics?.taskAging || { onTime: 0, aging: 0, critical: 0, total: 0 });
