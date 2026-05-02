@@ -5,9 +5,21 @@ import { Alert, Box, Chip, CircularProgress, IconButton, Skeleton, Stack, TableC
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { EmployeeTask, LeadConversation, LeadUser, TodayReminder } from '../../lib/api';
 import { fetchEmployeeTasks, fetchLeadConversations, fetchLeadsSummary, fetchTaskAnalytics } from '../../lib/api';
+import { formatLocalTime, isPendingReminderOverdue } from '../../lib/datetime';
 import AdminDataTable from '../../components/admin/AdminDataTable';
 import { useAdminAuth } from '../../layouts/AdminAuthContext';
 import './admin.css';
+
+const UNDER_PROCESS_BUCKET_STATUSES = new Set([
+  'Connected',
+  'Service not available',
+  'Call Not Answered',
+  'Call Disconnected',
+  'Switched Off',
+  'Number Busy',
+  'WhatsApp Sent',
+  'Left Voicemail'
+]);
 
 function getTaskAgingStatus(task: EmployeeTask): 'on_time' | 'aging' | 'critical' | null {
   if ((task.taskStatus || 'under_process') !== 'under_process') return null;
@@ -44,7 +56,7 @@ export default function AdminDashboardPage() {
   const [totalLeads, setTotalLeads] = useState(0);
   const [recentLoginCount, setRecentLoginCount] = useState(0);
   const [dailyRegistrations, setDailyRegistrations] = useState<Array<{ day: string; count: number }>>([]);
-  const [recentUsers, setRecentUsers] = useState<LeadUser[]>([]);
+  const [recentLeads, setRecentLeads] = useState<LeadUser[]>([]);
   const [todaysRemindersCount, setTodaysRemindersCount] = useState(0);
   const [todaysReminders, setTodaysReminders] = useState<TodayReminder[]>([]);
   const [leadConversations, setLeadConversations] = useState<LeadConversation[]>([]);
@@ -74,21 +86,21 @@ export default function AdminDashboardPage() {
     try {
       const isEmployee = adminUser?.role === 'employee';
       const [summary, tasks, analytics, conversations] = await Promise.all([
-        fetchLeadsSummary(),
+        fetchLeadsSummary({ viewerUserId: adminUser?.id }),
         isEmployee && adminUser?.id ? fetchEmployeeTasks(adminUser.id) : Promise.resolve([]),
         isEmployee ? Promise.resolve(null) : fetchTaskAnalytics(),
-        fetchLeadConversations()
+        fetchLeadConversations('leads')
       ]);
       if (!mountedRef.current) return;
       setTotalLeads(summary.totalLeads);
       setRecentLoginCount(summary.recentLoginCount);
-      setDailyRegistrations(summary.dailyRegistrations);
-      setRecentUsers(summary.recentUsers);
+      setDailyRegistrations(Array.isArray(summary.dailyRegistrations) ? summary.dailyRegistrations : []);
+      setRecentLeads(Array.isArray(summary.recentLeads) ? summary.recentLeads : []);
       setTodaysRemindersCount(summary.todaysRemindersCount);
-      setTodaysReminders(summary.todaysReminders);
+      setTodaysReminders(Array.isArray(summary.todaysReminders) ? summary.todaysReminders : []);
       setLeadConversations(conversations);
-      setUsersByLocation(summary.usersByLocation);
-      setEmployeeTasks(tasks);
+      setUsersByLocation(Array.isArray(summary.usersByLocation) ? summary.usersByLocation : []);
+      setEmployeeTasks(Array.isArray(tasks) ? tasks : []);
       setEmployeeTaskCounts(analytics?.employeeTasks || []);
       setCountryTaskCounts(analytics?.countryTasks || []);
       setGlobalTaskAging(analytics?.taskAging || { onTime: 0, aging: 0, critical: 0, total: 0 });
@@ -152,14 +164,6 @@ export default function AdminDashboardPage() {
     () => employeeTasks.filter((task) => (task.taskStatus || 'under_process') === 'under_process'),
     [employeeTasks]
   );
-  const recentStudentUsers = useMemo(
-    () =>
-      recentUsers.filter((user) => {
-        const role = String(user.role || '').toLowerCase();
-        return role === 'student' || role === 'uploaded';
-      }),
-    [recentUsers]
-  );
   const activeBucketConversations = useMemo(
     () =>
       leadConversations.filter(
@@ -176,20 +180,54 @@ export default function AdminDashboardPage() {
     const counts = {
       hot: activeBucketConversations.filter((conversation) => conversation.leadType === 'HOT').length,
       warm: activeBucketConversations.filter((conversation) => conversation.leadType === 'WARM').length,
-      cold: activeBucketConversations.filter((conversation) => conversation.leadType === 'COLD').length,
-      newCount: activeBucketConversations.filter((conversation) => conversation.conversationStatus === 'Awaiting Response').length
+      cold: activeBucketConversations.filter((conversation) => conversation.leadType === 'COLD').length
     };
 
     return {
       items: [
         { key: 'hot', label: 'Hot', count: counts.hot, color: 'linear-gradient(180deg, #22c55e 0%, #15803d 100%)' },
         { key: 'warm', label: 'Warm', count: counts.warm, color: 'linear-gradient(180deg, #fbbf24 0%, #d97706 100%)' },
-        { key: 'cold', label: 'Cold', count: counts.cold, color: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)' },
-        { key: 'new', label: 'New', count: counts.newCount, color: 'linear-gradient(180deg, #38bdf8 0%, #2563eb 100%)' }
+        { key: 'cold', label: 'Cold', count: counts.cold, color: 'linear-gradient(180deg, #94a3b8 0%, #475569 100%)' }
       ],
-      max: Math.max(1, counts.hot, counts.warm, counts.cold, counts.newCount)
+      max: Math.max(1, counts.hot, counts.warm, counts.cold)
     };
   }, [activeBucketConversations]);
+  const myBucketStatusPie = useMemo(() => {
+    const counts = {
+      overdue: 0,
+      underProcess: 0
+    };
+
+    for (const conversation of leadConversations) {
+      if (conversation.assignedEmployeeUserId !== adminUser?.id) continue;
+
+      if (isPendingReminderOverdue(conversation.reminderAt, conversation.reminderDone)) {
+        counts.overdue += 1;
+        continue;
+      }
+      if (UNDER_PROCESS_BUCKET_STATUSES.has(conversation.conversationStatus)) {
+        counts.underProcess += 1;
+        continue;
+      }
+    }
+
+    const total = counts.overdue + counts.underProcess;
+    const overduePct = total ? (counts.overdue / total) * 100 : 0;
+    const underProcessPct = total ? (counts.underProcess / total) * 100 : 0;
+
+    return {
+      counts,
+      total,
+      pieBackground: `conic-gradient(
+        #dc2626 0% ${overduePct}%,
+        #0f766e ${overduePct}% 100%
+      )`,
+      percentages: {
+        overdue: Math.round(overduePct),
+        underProcess: Math.round(underProcessPct)
+      }
+    };
+  }, [adminUser?.id, leadConversations]);
   const thisMonthLeadMix = useMemo(() => {
     const now = new Date();
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
@@ -297,19 +335,19 @@ export default function AdminDashboardPage() {
       {
         label: 'Total Leads',
         value: totalLeads,
-        helper: 'All registered users',
+        helper: 'Non-registered leads',
         icon: <PublicRounded fontSize="small" sx={{ color: '#0284c7' }} />
       },
       {
         label: 'Today',
         value: todayRegistrations,
-        helper: 'Registered today',
+        helper: 'Users registered today',
         icon: <TrendingUpRounded fontSize="small" sx={{ color: '#0369a1' }} />
       },
       {
         label: adminUser?.role === 'employee' ? 'My Bucket' : 'This Week',
         value: adminUser?.role === 'employee' ? myBucketCount : thisWeekRegistrations,
-        helper: adminUser?.role === 'employee' ? 'Leads assigned to my bucket' : 'Registrations in last 7 days',
+        helper: adminUser?.role === 'employee' ? 'Leads assigned to my bucket' : 'User registrations in last 7 days',
         icon: <TrendingUpRounded fontSize="small" sx={{ color: '#2563eb' }} />
       },
       ...(adminUser?.role === 'employee'
@@ -362,13 +400,13 @@ export default function AdminDashboardPage() {
             CRM Dashboard
           </Typography>
           <Typography className="admin-crm-hero__subtitle">
-            Monitor user leads, daily registrations, and recently registered users.
+            Monitor lead activity separately from registered user trends.
           </Typography>
         </Box>
         <Stack direction="row" spacing={1.2} className="admin-crm-hero__chips">
-          <span className="admin-crm-pill">Daily Lead Trend</span>
-          <span className="admin-crm-pill">Recent Registrations</span>
-          <span className="admin-crm-pill">User Details</span>
+          <span className="admin-crm-pill">Lead Pipeline</span>
+          <span className="admin-crm-pill">User Registrations</span>
+          <span className="admin-crm-pill">Lead Follow-ups</span>
         </Stack>
         <Box sx={{ position: 'absolute', top: 14, right: 14 }}>
           <Tooltip title="Refresh dashboard">
@@ -422,12 +460,12 @@ export default function AdminDashboardPage() {
                 <Box className="admin-line-chart">
                   <svg viewBox="0 0 100 100" preserveAspectRatio="none" className="admin-line-chart__svg">
                     <polyline points={linePoints} fill="none" stroke="#2563eb" strokeWidth="1.6" strokeLinejoin="round" strokeLinecap="round" />
-                    {dailyRegistrations.map((item, index) => {
+                  {dailyRegistrations.map((item, index) => {
                       const x = dailyRegistrations.length === 1 ? 0 : (index / (dailyRegistrations.length - 1)) * 100;
                       const y = 100 - (item.count / dailyChartMax) * 100;
                       const dayLabel = new Date(item.day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
                       return (
-                        <Tooltip key={item.day} title={`${dayLabel}: ${item.count} users`} arrow placement="top">
+                        <Tooltip key={item.day} title={`${dayLabel}: ${item.count} registrations`} arrow placement="top">
                           <circle cx={x} cy={Math.max(0, Math.min(100, y))} r="1.45" fill="#0284c7" />
                         </Tooltip>
                       );
@@ -487,11 +525,9 @@ export default function AdminDashboardPage() {
               <Box className="admin-location-chart">
                 {usersByLocation.map((item) => (
                   <Box className="admin-location-chart__item" key={`top-${item.location}`}>
-                    <Tooltip title={`${item.location}: ${item.count} users`} arrow placement="top">
-                      <Box className="admin-location-chart__track">
-                        <Box className="admin-location-chart__bar" sx={{ height: `${Math.max(6, (item.count / locationChartMax) * 100)}%` }} />
-                      </Box>
-                    </Tooltip>
+                    <Box className="admin-location-chart__track" title={`${item.location}: ${item.count} registered users`}>
+                      <Box className="admin-location-chart__bar" sx={{ height: `${Math.max(6, (item.count / locationChartMax) * 100)}%` }} />
+                    </Box>
                     <Typography className="admin-location-chart__name" variant="caption">
                       {item.location}
                     </Typography>
@@ -504,6 +540,55 @@ export default function AdminDashboardPage() {
             )}
           </Box>
         </Box>
+
+        {adminUser?.role === 'employee' ? (
+          <Box className="admin-panel">
+            <Box className="admin-panel__head">
+              <Typography variant="h6" fontWeight={800}>
+                My Bucket Status
+              </Typography>
+            </Box>
+            <Box className="admin-panel__body">
+              {loading ? (
+                <Skeleton height={220} />
+              ) : myBucketStatusPie.total === 0 ? (
+                <Typography variant="body2" color="text.secondary">
+                  No leads in your bucket yet.
+                </Typography>
+              ) : (
+                <Box className="admin-task-aging">
+                  <Box className="admin-task-aging__pie-wrap">
+                    <Box className="admin-task-aging__pie" sx={{ background: myBucketStatusPie.pieBackground }} />
+                    <Box className="admin-task-aging__center">
+                      <Typography variant="h6" fontWeight={800}>
+                        {myBucketStatusPie.total}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Leads
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Stack spacing={1.2} sx={{ minWidth: 180 }}>
+                    <Box className="admin-task-aging__legend-row">
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#dc2626' }} />
+                      <Typography variant="body2" fontWeight={700}>Overdue</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {myBucketStatusPie.counts.overdue} ({myBucketStatusPie.percentages.overdue}%)
+                      </Typography>
+                    </Box>
+                    <Box className="admin-task-aging__legend-row">
+                      <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: '#0f766e' }} />
+                      <Typography variant="body2" fontWeight={700}>Under Process</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {myBucketStatusPie.counts.underProcess} ({myBucketStatusPie.percentages.underProcess}%)
+                      </Typography>
+                    </Box>
+                  </Stack>
+                </Box>
+              )}
+            </Box>
+          </Box>
+        ) : null}
 
         <Box className="admin-panel">
           <Box className="admin-panel__head">
@@ -804,7 +889,7 @@ export default function AdminDashboardPage() {
                     {reminder.userName}
                   </Typography>
                   <Typography variant="body2" color="text.secondary">
-                    {new Date(reminder.reminderAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                    {formatLocalTime(reminder.reminderAt, { hour: '2-digit', minute: '2-digit' })}
                   </Typography>
                   <Typography variant="caption" color="text.secondary">
                     {reminder.conversationStatus}
@@ -869,7 +954,7 @@ export default function AdminDashboardPage() {
       <Box className="admin-panel">
         <Box className="admin-panel__head">
           <Typography variant="h6" fontWeight={800}>
-            Recent Leads Details
+            Recent Lead Details
           </Typography>
         </Box>
         <Box className="admin-panel__body">
@@ -877,7 +962,7 @@ export default function AdminDashboardPage() {
             Array.from({ length: 6 }).map((_, idx) => <Skeleton key={`lead-row-skeleton-${idx}`} height={36} />)
           ) : (
             <Stack spacing={1}>
-              {recentStudentUsers.slice(0, 12).map((user) => (
+              {recentLeads.slice(0, 12).map((user) => (
                 <Box className="admin-lead-row" key={`lead-row-${user.id}`}>
                   <Typography variant="body2" fontWeight={700}>
                     {user.name}
@@ -896,9 +981,9 @@ export default function AdminDashboardPage() {
                   </Typography>
                 </Box>
               ))}
-              {recentStudentUsers.length === 0 ? (
+              {recentLeads.length === 0 ? (
                 <Typography variant="body2" color="text.secondary">
-                  No recent student/uploaded leads found.
+                  No recent leads found.
                 </Typography>
               ) : null}
             </Stack>

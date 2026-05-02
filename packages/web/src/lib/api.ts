@@ -32,8 +32,9 @@ export type AdminUser = {
   email?: string;
   phone?: string;
   city?: string;
-  role: 'admin' | 'manager' | 'employee';
-  roles?: Array<'admin' | 'manager' | 'employee'>;
+  role: string;
+  roles?: string[];
+  roleTypes?: string[];
 };
 
 export type LeadUser = {
@@ -42,14 +43,19 @@ export type LeadUser = {
   email?: string;
   phone?: string;
   city?: string;
-  role: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
+  role: string;
   createdAt: string;
 };
 
 export type AdminListUser = LeadUser & {
   lastLoginAt?: string | null;
-  roles?: Array<'admin' | 'manager' | 'employee'>;
+  roles?: string[];
   countryIds?: number[];
+  leadName?: string | null;
+  leadFrom?: string | null;
+  leadEntityId?: number | null;
+  leadEntityName?: string | null;
+  leadEntityRoleName?: string | null;
 };
 
 export type LeadConversationStatus =
@@ -74,7 +80,10 @@ export type LeadConversationStatus =
   | 'Country Not Preferred'
   | 'Already Enrolled Elsewhere'
   | 'Fake / Invalid Lead'
+  | 'Connected'
+  | 'Service not available'
   | 'Call Not Answered'
+  | 'Call Disconnected'
   | 'Switched Off'
   | 'Number Busy'
   | 'Wrong Number'
@@ -108,6 +117,12 @@ export type LeadConversation = {
     email?: string | null;
     phone?: string | null;
     city?: string | null;
+    preferredCountry?: string | null;
+    programLevel?: string | null;
+    courseField?: string | null;
+    intake?: string | null;
+    budget?: string | null;
+    sourceOfLead?: string | null;
   };
 };
 
@@ -153,7 +168,7 @@ export type LeadsSummary = {
   totalLeads: number;
   recentLoginCount: number;
   dailyRegistrations: Array<{ day: string; count: number }>;
-  recentUsers: LeadUser[];
+  recentLeads: LeadUser[];
   todaysRemindersCount: number;
   todaysReminders: TodayReminder[];
   usersByLocation: Array<{ location: string; count: number }>;
@@ -226,7 +241,7 @@ export type StudentProfile = {
   email?: string | null;
   phone?: string | null;
   city?: string | null;
-  role: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
+  role: string;
   dob?: string | null;
   gender?: string | null;
   highestQualification?: string | null;
@@ -320,6 +335,28 @@ export type AdminStudyGuide = {
   countryId: number;
   countryName: string;
   countryIso: string;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminRole = {
+  id: number;
+  name: string;
+  roleName: string;
+  roleType: 'Manager' | 'Admin' | 'SuperAdmin' | 'Student' | 'Default' | 'Employee' | 'Entity';
+  description?: string | null;
+  enabled: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+};
+
+export type AdminEntity = {
+  id: number;
+  entityName: string;
+  entityDescription?: string | null;
+  entityRoleId: number;
+  entityRoleName: string;
+  entityRoleLabel: string;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -874,25 +911,48 @@ export async function updateProgram(
   return normalizeProgram(program);
 }
 
-export async function fetchLeadsSummary(): Promise<LeadsSummary> {
-  const res = await fetch(`${API_URL}/api/auth/leads-summary`);
+export async function fetchLeadsSummary(options?: { viewerUserId?: number }): Promise<LeadsSummary> {
+  const url = new URL(`${API_URL}/api/auth/leads-summary`);
+  if (options?.viewerUserId) {
+    url.searchParams.set('viewerUserId', String(options.viewerUserId));
+  }
+  const res = await fetch(url.toString());
   return handleResponse<LeadsSummary>(res);
 }
 
-export async function fetchAdminUsers(): Promise<AdminListUser[]> {
-  const res = await fetch(`${API_URL}/api/auth/users`);
+export async function fetchAdminUsers(
+  kind: 'all' | 'registered' | 'leads' = 'all',
+  options?: {
+    entityId?: number;
+    viewerRoles?: string[];
+  }
+): Promise<AdminListUser[]> {
+  const url = new URL(`${API_URL}/api/auth/users`);
+  if (kind !== 'all') {
+    url.searchParams.set('kind', kind);
+  }
+  if (options?.entityId) {
+    url.searchParams.set('entityId', String(options.entityId));
+  }
+  if (options?.viewerRoles?.length) {
+    url.searchParams.set('viewerRoles', options.viewerRoles.join(','));
+  }
+  const res = await fetch(url.toString());
   return handleResponse<AdminListUser[]>(res);
 }
 
 export async function createAdminUser(input: {
   name: string;
-  email: string;
+  email?: string;
   phone?: string;
   city?: string;
-  role?: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
-  roles?: Array<'admin' | 'manager' | 'employee'>;
+  role?: string;
+  roles?: string[];
   countryIds?: number[];
   password?: string;
+  leadName?: string;
+  leadFrom?: string;
+  leadEntityId?: number;
 }): Promise<AdminListUser> {
   const res = await fetch(`${API_URL}/api/auth/users`, {
     method: 'POST',
@@ -908,11 +968,16 @@ export async function bulkCreateAdminUsers(
     email: string;
     phone?: string;
     city?: string;
-    role?: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
-    roles?: Array<'admin' | 'manager' | 'employee'>;
+    role?: string;
+    roles?: string[];
     countryIds?: number[] | string;
     password?: string;
-  }>
+  }>,
+  leadImportMeta?: {
+    leadName: string;
+    leadFrom: string;
+    leadEntityId: number;
+  }
 ): Promise<{
   createdCount: number;
   failedCount: number;
@@ -922,7 +987,7 @@ export async function bulkCreateAdminUsers(
   const res = await fetch(`${API_URL}/api/auth/users/bulk`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ users })
+    body: JSON.stringify({ users, leadImportMeta })
   });
   return handleResponse(res);
 }
@@ -934,8 +999,8 @@ export async function updateAdminUser(
     email: string;
     phone?: string;
     city?: string;
-    role?: 'student' | 'uploaded' | 'admin' | 'manager' | 'employee';
-    roles?: Array<'admin' | 'manager' | 'employee'>;
+    role?: string;
+    roles?: string[];
     countryIds?: number[];
     password?: string;
   }>
@@ -955,14 +1020,114 @@ export async function deleteAdminUser(userId: number): Promise<{ success: boolea
   return handleResponse<{ success: boolean }>(res);
 }
 
-export async function fetchLeadConversations(): Promise<LeadConversation[]> {
-  const res = await fetch(`${API_URL}/api/lead-conversations`);
+export async function fetchLeadConversations(kind: 'all' | 'leads' | 'registered' = 'all'): Promise<LeadConversation[]> {
+  const url = new URL(`${API_URL}/api/lead-conversations`);
+  if (kind !== 'all') {
+    url.searchParams.set('kind', kind);
+  }
+  const res = await fetch(url.toString());
   return handleResponse<LeadConversation[]>(res);
+}
+
+export async function fetchAdminRoles(): Promise<AdminRole[]> {
+  const res = await fetch(`${API_URL}/api/admin-roles`);
+  return handleResponse<AdminRole[]>(res);
+}
+
+export async function createAdminRole(input: {
+  name: string;
+  roleName: string;
+  roleType: 'Manager' | 'Admin' | 'SuperAdmin' | 'Student' | 'Default' | 'Employee' | 'Entity';
+  description?: string | null;
+  enabled: boolean;
+}): Promise<AdminRole> {
+  const res = await fetch(`${API_URL}/api/admin-roles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminRole>(res);
+}
+
+export async function updateAdminRole(
+  roleId: number,
+  input: Partial<{
+    name: string;
+    roleName: string;
+    roleType: 'Manager' | 'Admin' | 'SuperAdmin' | 'Student' | 'Default' | 'Employee' | 'Entity';
+    description?: string | null;
+    enabled: boolean;
+  }>
+): Promise<AdminRole> {
+  const res = await fetch(`${API_URL}/api/admin-roles/${roleId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminRole>(res);
+}
+
+export async function deleteAdminRole(roleId: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/admin-roles/${roleId}`, {
+    method: 'DELETE'
+  });
+  return handleResponse<{ success: boolean }>(res);
+}
+
+export async function fetchAdminEntities(): Promise<AdminEntity[]> {
+  const res = await fetch(`${API_URL}/api/entities`);
+  return handleResponse<AdminEntity[]>(res);
+}
+
+export async function createAdminEntity(input: {
+  entityName: string;
+  entityDescription?: string | null;
+  entityRoleId: number;
+}): Promise<AdminEntity> {
+  const res = await fetch(`${API_URL}/api/entities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminEntity>(res);
+}
+
+export async function updateAdminEntity(
+  entityId: number,
+  input: Partial<{
+    entityName: string;
+    entityDescription?: string | null;
+    entityRoleId: number;
+  }>
+): Promise<AdminEntity> {
+  const res = await fetch(`${API_URL}/api/entities/${entityId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(input)
+  });
+  return handleResponse<AdminEntity>(res);
+}
+
+export async function deleteAdminEntity(entityId: number): Promise<{ success: boolean }> {
+  const res = await fetch(`${API_URL}/api/entities/${entityId}`, {
+    method: 'DELETE'
+  });
+  return handleResponse<{ success: boolean }>(res);
 }
 
 export async function upsertLeadConversation(
   userId: number,
   payload: Partial<{
+    name: string | null;
+    email: string | null;
+    phone: string | null;
+    city: string | null;
+    preferredCountry: string | null;
+    programLevel: string | null;
+    courseField: string | null;
+    intake: string | null;
+    budget: string | null;
+    sourceOfLead: string | null;
     lookingFor: string | null;
     conversationStatus: LeadConversationStatus;
     notes: string | null;

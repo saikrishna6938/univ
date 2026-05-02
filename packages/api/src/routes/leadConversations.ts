@@ -27,7 +27,10 @@ const ALLOWED_STATUSES = [
   'Country Not Preferred',
   'Already Enrolled Elsewhere',
   'Fake / Invalid Lead',
+  'Connected',
+  'Service not available',
   'Call Not Answered',
+  'Call Disconnected',
   'Switched Off',
   'Number Busy',
   'Wrong Number',
@@ -55,7 +58,10 @@ const WARM_STATUSES = new Set<ConversationStatus>([
   'Waiting for Results (IELTS / Exams / Documents)',
   'Follow Up Later',
   'Interested for Next Intake',
+  'Connected',
+  'Service not available',
   'Call Not Answered',
+  'Call Disconnected',
   'Switched Off',
   'Number Busy',
   'WhatsApp Sent',
@@ -82,6 +88,12 @@ type LeadConversationRow = RowDataPacket & {
   userEmail?: string;
   userPhone?: string;
   userCity?: string;
+  userPreferredCountry?: string;
+  userProgramLevel?: string;
+  userCourseField?: string;
+  userLeadIntake?: string;
+  userBudget?: string;
+  userLeadFrom?: string;
 };
 
 async function ensureLeadConversationSchema() {
@@ -147,6 +159,22 @@ async function ensureLeadConversationSchema() {
         ,
         [...Array.from(HOT_STATUSES), ...Array.from(WARM_STATUSES)]
       );
+
+      const userLeadColumns: Array<[string, string]> = [
+        ['lead_from', `ALTER TABLE users ADD COLUMN lead_from VARCHAR(255) NULL AFTER lead_name`],
+        ['preferred_country', `ALTER TABLE users ADD COLUMN preferred_country VARCHAR(255) NULL AFTER lead_entity_id`],
+        ['program_level', `ALTER TABLE users ADD COLUMN program_level VARCHAR(255) NULL AFTER preferred_country`],
+        ['course_field', `ALTER TABLE users ADD COLUMN course_field VARCHAR(255) NULL AFTER program_level`],
+        ['lead_intake', `ALTER TABLE users ADD COLUMN lead_intake VARCHAR(120) NULL AFTER course_field`],
+        ['budget', `ALTER TABLE users ADD COLUMN budget VARCHAR(120) NULL AFTER lead_intake`]
+      ];
+
+      for (const [columnName, query] of userLeadColumns) {
+        const [columnRows] = await pool.query<RowDataPacket[]>(`SHOW COLUMNS FROM users LIKE ?`, [columnName]);
+        if (!columnRows.length) {
+          await pool.query(query);
+        }
+      }
     })().catch((error) => {
       ensureLeadConversationSchemaPromise = null;
       throw error;
@@ -172,6 +200,16 @@ function getLeadType(status: ConversationStatus): LeadType {
 
 function toMySqlDateTime(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return null;
+  const normalized = String(value).trim();
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) {
+    return `${normalized.replace('T', ' ')}:00`;
+  }
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    return normalized.replace('T', ' ');
+  }
+  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    return normalized;
+  }
   const date = new Date(String(value));
   if (Number.isNaN(date.getTime())) {
     throw new Error('Invalid datetime value');
@@ -205,14 +243,27 @@ function rowToConversation(row: LeadConversationRow) {
           name: row.userName,
           email: row.userEmail,
           phone: row.userPhone,
-          city: row.userCity
+          city: row.userCity,
+          preferredCountry: row.userPreferredCountry,
+          programLevel: row.userProgramLevel,
+          courseField: row.userCourseField,
+          intake: row.userLeadIntake,
+          budget: row.userBudget,
+          sourceOfLead: row.userLeadFrom
         }
       : undefined
   };
 }
 
-router.get('/', async (_req, res) => {
+router.get('/', async (req, res) => {
   await ensureLeadConversationSchema();
+  const kind = String(req.query.kind || 'all').trim().toLowerCase();
+  const whereClause =
+    kind === 'leads'
+      ? `WHERE LOWER(COALESCE(u.role, 'student')) = 'uploaded'`
+      : kind === 'registered'
+        ? `WHERE LOWER(COALESCE(u.role, 'student')) <> 'uploaded'`
+        : '';
   const [rows] = await pool.query<LeadConversationRow[]>(
     `SELECT lc.id,
             lc.user_id AS userId,
@@ -220,21 +271,28 @@ router.get('/', async (_req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
+     ${whereClause}
      ORDER BY lc.updated_at DESC`
   );
 
@@ -255,18 +313,24 @@ router.get('/:userId', async (req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
@@ -335,18 +399,24 @@ router.post('/:userId/take', async (req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
@@ -383,18 +453,24 @@ router.post('/:userId/release', async (req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
@@ -432,18 +508,24 @@ router.post('/:userId/release', async (req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
@@ -474,6 +556,16 @@ router.put('/:userId', async (req, res) => {
   const body = req.body || {};
   const lookingFor = body.lookingFor === '' ? null : body.lookingFor ?? null;
   const notes = body.notes === '' ? null : body.notes ?? null;
+  const userName = body.name === undefined ? undefined : String(body.name || '').trim();
+  const userEmail = body.email === undefined ? undefined : (body.email ? String(body.email).trim().toLowerCase() : null);
+  const userPhone = body.phone === undefined ? undefined : (body.phone ? String(body.phone).trim() : null);
+  const userCity = body.city === undefined ? undefined : (body.city ? String(body.city).trim() : null);
+  const preferredCountry = body.preferredCountry === undefined ? undefined : (body.preferredCountry ? String(body.preferredCountry).trim() : null);
+  const programLevel = body.programLevel === undefined ? undefined : (body.programLevel ? String(body.programLevel).trim() : null);
+  const courseField = body.courseField === undefined ? undefined : (body.courseField ? String(body.courseField).trim() : null);
+  const intake = body.intake === undefined ? undefined : (body.intake ? String(body.intake).trim() : null);
+  const budget = body.budget === undefined ? undefined : (body.budget ? String(body.budget).trim() : null);
+  const sourceOfLead = body.sourceOfLead === undefined ? undefined : (body.sourceOfLead ? String(body.sourceOfLead).trim() : null);
   const conversationStatus = normalizeStatus(body.conversationStatus);
   const leadType = getLeadType(conversationStatus);
   const reminderDone = body.reminderDone ? 1 : 0;
@@ -496,18 +588,24 @@ router.put('/:userId', async (req, res) => {
             lc.looking_for AS lookingFor,
             lc.conversation_status AS conversationStatus,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
@@ -524,6 +622,80 @@ router.put('/:userId', async (req, res) => {
     Number(existingConversation.assignedEmployeeUserId) !== actingAdminUserId
   ) {
     return res.status(409).json({ error: `${existingConversation.assignedEmployeeName || 'Another employee'} already took this lead` });
+  }
+
+  if (userName !== undefined && !userName) {
+    return res.status(400).json({ error: 'Name cannot be empty' });
+  }
+
+  if (userEmail !== undefined && userEmail) {
+    const [emailRows] = await pool.query<RowDataPacket[]>(
+      'SELECT id FROM users WHERE email = ? AND id <> ? LIMIT 1',
+      [userEmail, userId]
+    );
+    if (emailRows.length) {
+      return res.status(409).json({ error: 'User with this email already exists' });
+    }
+  }
+
+  if (userPhone !== undefined && userPhone) {
+    const [phoneRows] = await pool.query<RowDataPacket[]>(
+      'SELECT id FROM users WHERE phone = ? AND id <> ? LIMIT 1',
+      [userPhone, userId]
+    );
+    if (phoneRows.length) {
+      return res.status(409).json({ error: 'User with this phone already exists' });
+    }
+  }
+
+  const userUpdates: string[] = [];
+  const userValues: Array<string | null | number> = [];
+  if (userName !== undefined) {
+    userUpdates.push('name = ?');
+    userValues.push(userName);
+  }
+  if (userEmail !== undefined) {
+    userUpdates.push('email = ?');
+    userValues.push(userEmail);
+  }
+  if (userPhone !== undefined) {
+    userUpdates.push('phone = ?');
+    userValues.push(userPhone);
+  }
+  if (userCity !== undefined) {
+    userUpdates.push('city = ?');
+    userValues.push(userCity);
+  }
+  if (preferredCountry !== undefined) {
+    userUpdates.push('preferred_country = ?');
+    userValues.push(preferredCountry);
+  }
+  if (programLevel !== undefined) {
+    userUpdates.push('program_level = ?');
+    userValues.push(programLevel);
+  }
+  if (courseField !== undefined) {
+    userUpdates.push('course_field = ?');
+    userValues.push(courseField);
+  }
+  if (intake !== undefined) {
+    userUpdates.push('lead_intake = ?');
+    userValues.push(intake);
+  }
+  if (budget !== undefined) {
+    userUpdates.push('budget = ?');
+    userValues.push(budget);
+  }
+  if (sourceOfLead !== undefined) {
+    userUpdates.push('lead_from = ?');
+    userValues.push(sourceOfLead);
+  }
+
+  if (userUpdates.length) {
+    await pool.query<ResultSetHeader>(
+      `UPDATE users SET ${userUpdates.join(', ')} WHERE id = ?`,
+      [...userValues, userId]
+    );
   }
 
   await pool.query<ResultSetHeader>(
@@ -566,18 +738,24 @@ router.put('/:userId', async (req, res) => {
             lc.conversation_status AS conversationStatus,
             lc.lead_type AS leadType,
             lc.notes,
-            lc.reminder_at AS reminderAt,
+            DATE_FORMAT(lc.reminder_at, '%Y-%m-%d %H:%i:%s') AS reminderAt,
             lc.reminder_done AS reminderDone,
-            lc.last_contacted_at AS lastContactedAt,
+            DATE_FORMAT(lc.last_contacted_at, '%Y-%m-%d %H:%i:%s') AS lastContactedAt,
             lc.assigned_employee_user_id AS assignedEmployeeUserId,
-            lc.assigned_at AS assignedAt,
-            lc.created_at AS createdAt,
-            lc.updated_at AS updatedAt,
+            DATE_FORMAT(lc.assigned_at, '%Y-%m-%d %H:%i:%s') AS assignedAt,
+            DATE_FORMAT(lc.created_at, '%Y-%m-%d %H:%i:%s') AS createdAt,
+            DATE_FORMAT(lc.updated_at, '%Y-%m-%d %H:%i:%s') AS updatedAt,
             au.name AS assignedEmployeeName,
             u.name AS userName,
             u.email AS userEmail,
             u.phone AS userPhone,
-            u.city AS userCity
+            u.city AS userCity,
+            u.preferred_country AS userPreferredCountry,
+            u.program_level AS userProgramLevel,
+            u.course_field AS userCourseField,
+            u.lead_intake AS userLeadIntake,
+            u.budget AS userBudget,
+            u.lead_from AS userLeadFrom
      FROM lead_conversations lc
      INNER JOIN users u ON u.id = lc.user_id
      LEFT JOIN users au ON au.id = lc.assigned_employee_user_id
